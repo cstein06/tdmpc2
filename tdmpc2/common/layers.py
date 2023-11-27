@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from functorch import combine_state_for_ensemble
-
+# from torch.func import stack_module_state
 
 class Ensemble(nn.Module):
 	"""
@@ -12,10 +12,24 @@ class Ensemble(nn.Module):
 	def __init__(self, modules, **kwargs):
 		super().__init__()
 		modules = nn.ModuleList(modules)
+
+		# self.modules_ = modules
+
+		# fn, params = stack_module_state(modules)
+		# def wrapper(params, buffers, data):
+		# 	return torch.func.functional_call(modules[0], (params, buffers), data)
+		# self.vmap = torch.vmap(params, in_dims=(0, 0, None), randomness='different', **kwargs)
+
 		fn, params, _ = combine_state_for_ensemble(modules)
-		self.vmap = torch.vmap(fn, in_dims=(0, 0, None), randomness='different', **kwargs)
+		self.vmap = torch.func.vmap(fn, in_dims=(0, 0, None), randomness='different', **kwargs)
+
 		self.params = nn.ParameterList([nn.Parameter(p) for p in params])
 		self._repr = str(modules)
+
+	# def modules(self):
+	# 	return self.modules_
+	# 	# return self.vmap
+	# 	# return self.vmap.__wrapped__.stateless_model
 
 	def forward(self, *args, **kwargs):
 		return self.vmap([p for p in self.params], (), *args, **kwargs)

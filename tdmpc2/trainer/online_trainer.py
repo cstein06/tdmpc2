@@ -3,6 +3,7 @@ from time import time
 import numpy as np
 import torch
 from tensordict.tensordict import TensorDict
+from tqdm import tqdm
 
 from trainer.base import Trainer
 
@@ -26,6 +27,7 @@ class OnlineTrainer(Trainer):
 
 	def eval(self):
 		"""Evaluate a TD-MPC2 agent."""
+		print('Evaluating...')
 		ep_rewards, ep_successes = [], []
 		for i in range(self.cfg.eval_episodes):
 			obs, done, ep_reward, t = self.env.reset(), False, 0, 0
@@ -68,6 +70,9 @@ class OnlineTrainer(Trainer):
 		"""Train a TD-MPC2 agent."""
 		train_metrics, done, eval_next = {}, True, True
 		while self._step <= self.cfg.steps:
+
+			if self._step % 100 == 0:
+				print("Step:", self._step)
 
 			# Evaluate agent periodically
 			if self._step % self.cfg.eval_freq == 0:

@@ -1,14 +1,14 @@
 from copy import deepcopy
 import warnings
 
-import gym
+# import gym
 
 from envs.wrappers.multitask import MultitaskWrapper
 from envs.wrappers.tensor import TensorWrapper
 from envs.dmcontrol import make_env as make_dm_control_env
-from envs.maniskill import make_env as make_maniskill_env
-from envs.metaworld import make_env as make_metaworld_env
-from envs.myosuite import make_env as make_myosuite_env
+# from envs.maniskill import make_env as make_maniskill_env
+# from envs.metaworld import make_env as make_metaworld_env
+# from envs.myosuite import make_env as make_myosuite_env
 from envs.exceptions import UnknownTaskError
 
 warnings.filterwarnings('ignore', category=DeprecationWarning)
@@ -39,12 +39,12 @@ def make_env(cfg):
 	"""
 	Make an environment for TD-MPC2 experiments.
 	"""
-	gym.logger.set_level(40)
+	# gym.logger.set_level(40)
 	if cfg.multitask:
 		env = make_multitask_env(cfg)
 	else:
 		env = None
-		for fn in [make_dm_control_env, make_maniskill_env, make_metaworld_env, make_myosuite_env]:
+		for fn in [make_dm_control_env]: #, make_maniskill_env, make_metaworld_env, make_myosuite_env]:
 			try:
 				env = fn(cfg)
 			except UnknownTaskError:

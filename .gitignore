@@ -1,7 +1,8 @@
 # logging
-tdmpc2/logs/
-tdmpc2/outputs/
-tdmpc2/wandb/
+logs/
+outputs/
+wandb/
+checkpoints/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

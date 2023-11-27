@@ -1,7 +1,7 @@
 import os
-os.environ['MUJOCO_GL'] = 'egl'
+# os.environ['MUJOCO_GL'] = 'egl'
 import warnings
-warnings.filterwarnings('ignore')
+# warnings.filterwarnings('ignore')
 import torch
 
 import hydra

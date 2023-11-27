@@ -97,6 +97,7 @@ class VideoRecorder:
 	def save(self, step, key='videos/eval_video'):
 		if self.enabled and len(self.frames) > 0:
 			frames = np.stack(self.frames)
+			print(self.fps)
 			return self._wandb.log(
 				{key: self._wandb.Video(frames.transpose(0, 3, 1, 2), fps=self.fps, format='mp4')}, step=step
 			)
