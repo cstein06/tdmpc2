@@ -15,7 +15,7 @@ class TDMPC2:
 
 	def __init__(self, cfg):
 		self.cfg = cfg
-		self.device = torch.device('cuda')
+		self.device = torch.device(cfg.device)
 		self.model = WorldModel(cfg).to(self.device)
 		self.optim = torch.optim.Adam([
 			{'params': self.model._encoder.parameters(), 'lr': self.cfg.lr*self.cfg.enc_lr_scale},
@@ -25,6 +25,12 @@ class TDMPC2:
 			{'params': self.model._task_emb.parameters() if self.cfg.multitask else []}
 		], lr=self.cfg.lr)
 		self.pi_optim = torch.optim.Adam(self.model._pi.parameters(), lr=self.cfg.lr, eps=1e-5)
+		
+		self.ctrl_dyn_optim = torch.optim.Adam([
+			{'params': self.model._ctrl_dynamics.parameters()},
+		], lr=self.cfg.lr_ctrl_dyn)
+		self.ctrl_pi_optim = torch.optim.Adam(self.model._pi.parameters(), lr=self.cfg.lr_ctrl_pi, eps=1e-5)
+
 		self.model.eval()
 		self.scale = RunningScale(cfg)
 		self.cfg.iterations += 2*int(cfg.action_dim >= 20) # Heuristic for large action spaces
@@ -66,7 +72,7 @@ class TDMPC2:
 		state_dict = fp if isinstance(fp, dict) else torch.load(fp)
 		self.model.load_state_dict(state_dict["model"])
 
-	@torch.no_grad()
+	# @torch.no_grad()
 	def act(self, obs, t0=False, eval_mode=False, task=None):
 		"""
 		Select an action by planning in the latent space of the world model.
@@ -84,7 +90,10 @@ class TDMPC2:
 		if task is not None:
 			task = torch.tensor([task], device=self.device)
 		z = self.model.encode(obs, task)
-		a = self.plan(z, t0=t0, eval_mode=eval_mode, task=task)
+		if self.cfg.mpc:
+			a = self.plan(z, t0=t0, eval_mode=eval_mode, task=task)
+		else:
+			a = self.model.pi(z, task)[int(not eval_mode)][0]
 		return a.cpu()
 
 	@torch.no_grad()
@@ -284,3 +293,46 @@ class TDMPC2:
 			"grad_norm": float(grad_norm),
 			"pi_scale": float(self.scale.value),
 		}
+	
+	def control_update(self, episode):
+		"""
+		Adpative control update function.
+		
+		Args:
+			episode (dict): Episode sample. Formatted as from the replay buffer. 
+		
+		Returns:
+			dict: Dictionary of training statistics.
+		"""
+		episode = episode.to(self.device, non_blocking=True)
+		obs, action, reward = episode['obs'], episode['action'][1:], episode['reward'][1:]
+		ep_len = len(obs)
+		task = None
+		# print(obs.shape, action.shape, reward.shape)
+
+		# Prepare for update
+		self.ctrl_pi_optim.zero_grad(set_to_none=True)
+		self.ctrl_dyn_optim.zero_grad(set_to_none=True)
+		self.model.train()
+
+		# Compare latent predictions
+		zs_obs = self.model.encode(obs, task).detach()
+		zs_pred = self.model.ctrl_pred(zs_obs[:-1], action, task)
+
+		consistency_loss = F.mse_loss(zs_pred[:-self.cfg.horizon+1], zs_obs[self.cfg.horizon:]) 
+		consistency_loss *= (1/(ep_len - self.cfg.horizon - 1))
+
+		# Update model
+		consistency_loss.backward()
+		# grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.grad_clip_norm)
+
+		self.ctrl_pi_optim.step()
+		self.ctrl_dyn_optim.step()
+
+		# Return training statistics
+		self.model.eval()
+		return {
+			"ctrl_loss": float(consistency_loss.mean().item()),
+			# "grad_norm_ctrl": float(grad_norm)
+		}
+	

@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 
 import hydra
+from hydra import initialize, compose
 from omegaconf import OmegaConf
 
 from common import MODEL_SIZE, TASK_SET
@@ -35,17 +36,23 @@ def parse_cfg(cfg: OmegaConf) -> OmegaConf:
 			pass
 
 	# Convenience
-	cfg.work_dir = Path(hydra.utils.get_original_cwd()) / 'logs' / cfg.task / str(cfg.seed) / cfg.exp_name
+	# print(hydra.utils.get_original_cwd())
+	# dir_aux = Path('G:\My Drive\work\projects\cerebellum\code\tdmpc2\tdmpc2')
+	dir_aux = Path(hydra.utils.get_original_cwd())
+	cfg.work_dir = dir_aux / 'logs' / cfg.task / str(cfg.seed) / cfg.exp_name
 	cfg.task_title = cfg.task.replace("-", " ").title()
 	cfg.bin_size = (cfg.vmax - cfg.vmin) / (cfg.num_bins-1) # Bin size for discrete regression
 
 	# Model size
-	assert cfg.model_size in MODEL_SIZE.keys(), \
-		f'Invalid model size {cfg.model_size}. Must be one of {list(MODEL_SIZE.keys())}'
-	for k, v in MODEL_SIZE[cfg.model_size].items():
-		cfg[k] = v
-	if cfg.task == 'mt30' and cfg.model_size == 19:
-		cfg.latent_dim = 512 # This checkpoint is slightly smaller
+	# assert cfg.model_size in MODEL_SIZE.keys(), \
+		# f'Invalid model size {cfg.model_size}. Must be one of {list(MODEL_SIZE.keys())}'
+	if cfg.model_size in MODEL_SIZE.keys():
+		for k, v in MODEL_SIZE[cfg.model_size].items():
+			cfg[k] = v
+		if cfg.task == 'mt30' and cfg.model_size == 19:
+			cfg.latent_dim = 512 # This checkpoint is slightly smaller
+	else:
+		print("Using custom model size.")
 
 	# Multi-task
 	cfg.multitask = cfg.task in TASK_SET.keys()

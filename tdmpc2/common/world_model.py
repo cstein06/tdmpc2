@@ -21,8 +21,17 @@ class WorldModel(nn.Module):
 			self._action_masks = torch.zeros(len(cfg.tasks), cfg.action_dim)
 			for i in range(len(cfg.tasks)):
 				self._action_masks[i, :cfg.action_dims[i]] = 1.
-		self._encoder = layers.enc(cfg)
-		self._dynamics = layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim, 2*[cfg.mlp_dim], cfg.latent_dim, act=layers.SimNorm(cfg))
+		
+		if cfg.no_enc:
+			self._encoder = nn.ModuleDict({"state": nn.Identity()})
+			self._dynamics = layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim, 2*[cfg.mlp_dim], cfg.latent_dim, act=None)
+		else:
+			self._encoder = layers.enc(cfg)
+			self._dynamics = layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim, 2*[cfg.mlp_dim], cfg.latent_dim, act=layers.SimNorm(cfg))
+		# print the encoder size
+		print("Encoder size: ", self._encoder)
+
+		self._ctrl_dynamics = layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim, 2*[cfg.mlp_dim], cfg.latent_dim, act=layers.SimNorm(cfg))
 		self._reward = layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim, 2*[cfg.mlp_dim], max(cfg.num_bins, 1))
 		self._pi = layers.mlp(cfg.latent_dim + cfg.task_dim, 2*[cfg.mlp_dim], 2*cfg.action_dim)
 		self._Qs = layers.Ensemble([layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim, 2*[cfg.mlp_dim], max(cfg.num_bins, 1), dropout=cfg.dropout) for _ in range(cfg.num_q)])
@@ -108,6 +117,15 @@ class WorldModel(nn.Module):
 		z = torch.cat([z, a], dim=-1)
 		return self._dynamics(z)
 	
+	def ctrl_pred(self, z, a, task):
+		"""
+		Predicts future latent state given the current latent state and action.
+		"""
+		if self.cfg.multitask:
+			z = self.task_emb(z, task)
+		z = torch.cat([z, a], dim=-1)
+		return self._ctrl_dynamics(z)
+
 	def reward(self, z, a, task):
 		"""
 		Predicts instantaneous (single-step) reward.

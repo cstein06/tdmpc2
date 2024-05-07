@@ -36,7 +36,7 @@ class Buffer():
 
 	def __init__(self, cfg):
 		self.cfg = cfg
-		self._device = torch.device('cuda')
+		self._device = torch.device(cfg.device)
 		self._capacity = min(cfg.buffer_size, cfg.steps)//cfg.episode_length
 		self._num_eps = 0
 
@@ -71,6 +71,11 @@ class Buffer():
 
 	def _init(self, tds):
 		"""Initialize the replay buffer. Use the first episode to estimate storage requirements."""
+		if self.cfg.device == 'mps':
+			print("Capacity:", self._capacity)
+			return self._reserve_buffer(
+				LazyTensorStorage(self._capacity)
+			)
 		mem_free, _ = torch.cuda.mem_get_info()
 		bytes_per_ep = sum([
 				(v.numel()*v.element_size() if not isinstance(v, TensorDict) \
@@ -89,13 +94,17 @@ class Buffer():
 		else: # Sufficient CUDA memory
 			print('Using CUDA memory for storage.')
 			return self._reserve_buffer(
-				LazyTensorStorage(self._capacity, device=torch.device('cuda'))
+				LazyTensorStorage(self._capacity, device=torch.device(self.cfg.device))
 			)
 
 	def add(self, tds):
 		"""Add an episode to the buffer. All episodes are expected to have the same length."""
+		# print(f'Adding episode {self._num_eps+1} to the buffer.')
 		if self._num_eps == 0:
 			self._buffer = self._init(tds)
+			# print(self._buffer)
+			# self._buffer._init
+		# print('buffer size:', self._buffer.max_size)
 		self._buffer.add(tds)
 		self._num_eps += 1
 		return self._num_eps
