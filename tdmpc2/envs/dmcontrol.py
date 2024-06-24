@@ -174,9 +174,9 @@ class TimeStepToGymWrapper:
 		time_step = self.env.step(action)
 		return self._obs_to_array(time_step.observation), time_step.reward, time_step.last() or self.t == self.max_episode_steps, defaultdict(float)
 
-	def render(self, mode='rgb_array', width=384, height=384, camera_id=0):
+	def render(self, mode='rgb_array', width=384, height=384, camera_id=0, scene_option=None):
 		camera_id = dict(quadruped=2).get(self.domain, camera_id)
-		return self.env.physics.render(height, width, camera_id)
+		return self.env.physics.render(height, width, camera_id, scene_option=scene_option)
 
 
 def make_env(cfg):
@@ -193,8 +193,10 @@ def make_env(cfg):
 					 task_kwargs={'random': cfg.seed},
 					 visualize_reward=False)
 	env = ActionDTypeWrapper(env, np.float32)
-	env = ActionRepeatWrapper(env, 2)
-	env = action_scale.Wrapper(env, minimum=-1., maximum=1.)
+	env = ActionRepeatWrapper(env, cfg.action_repeat)
+	if cfg.action_limit:
+		env = action_scale.Wrapper(env, minimum=-1., maximum=1.)
+	# env = action_scale.Wrapper(env, minimum=-1., maximum=1.)
 	env = ExtendedTimeStepWrapper(env)
 	env = TimeStepToGymWrapper(env, domain, task)
 	return env

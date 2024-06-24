@@ -24,12 +24,13 @@ class TDMPC2:
 			{'params': self.model._Qs.parameters()},
 			{'params': self.model._task_emb.parameters() if self.cfg.multitask else []}
 		], lr=self.cfg.lr)
-		self.pi_optim = torch.optim.Adam(self.model._pi.parameters(), lr=self.cfg.lr, eps=1e-5)
+		self.pi_optim = torch.optim.Adam(self.model._pi.parameters(), lr=self.cfg.pi_lr, eps=1e-5)
 		
 		self.ctrl_dyn_optim = torch.optim.Adam([
 			{'params': self.model._ctrl_dynamics.parameters()},
 		], lr=self.cfg.lr_ctrl_dyn)
-		self.ctrl_pi_optim = torch.optim.Adam(self.model._pi.parameters(), lr=self.cfg.lr_ctrl_pi, eps=1e-5)
+
+		self.ctrl_pi_optim = torch.optim.Adam(self.model._ctrl_pi.parameters(), lr=self.cfg.lr_ctrl_pi, eps=1e-5)
 
 		self.model.eval()
 		self.scale = RunningScale(cfg)
@@ -69,11 +70,11 @@ class TDMPC2:
 		Args:
 			fp (str or dict): Filepath or state dict to load.
 		"""
-		state_dict = fp if isinstance(fp, dict) else torch.load(fp)
-		self.model.load_state_dict(state_dict["model"])
+		state_dict = fp if isinstance(fp, dict) else torch.load(fp, map_location=torch.device('cpu'))
+		self.model.load_state_dict(state_dict["model"], strict=False)
 
 	# @torch.no_grad()
-	def act(self, obs, t0=False, eval_mode=False, task=None):
+	def act(self, obs, t0=False, eval_mode=False, task=None, ctrl=False):
 		"""
 		Select an action by planning in the latent space of the world model.
 		
@@ -94,6 +95,15 @@ class TDMPC2:
 			a = self.plan(z, t0=t0, eval_mode=eval_mode, task=task)
 		else:
 			a = self.model.pi(z, task)[int(not eval_mode)][0]
+
+		if ctrl:
+			# get output of last hidden layer of self.model._pi(z, task):
+			last_hidden = self.model._pi[:-1](z)
+			a_ctrl = self.model._ctrl_pi(last_hidden)[0]
+			a_total = a + a_ctrl.detach() # don't backpropagate through ctrl_pi
+
+			return a_total.cpu(), a.cpu(), a_ctrl.cpu()
+
 		return a.cpu()
 
 	@torch.no_grad()
@@ -231,7 +241,7 @@ class TDMPC2:
 			dict: Dictionary of training statistics.
 		"""
 		obs, action, reward, task = buffer.sample()
-	
+
 		# Compute targets
 		with torch.no_grad():
 			next_z = self.model.encode(obs[1:], task)
@@ -294,7 +304,17 @@ class TDMPC2:
 			"pi_scale": float(self.scale.value),
 		}
 	
-	def control_update(self, episode):
+	def control_predict(self, obs, action, task=None, diff=True):
+		obs = obs.to(self.device, non_blocking=True).unsqueeze(0)
+		action = action.to(self.device, non_blocking=True).unsqueeze(0)
+		zs_obs = self.model.encode(obs, task).detach()
+		zs_pred = self.model.ctrl_pred(zs_obs, action, task)
+		z_mu, z_sig2 = zs_pred[:,:self.cfg.latent_dim], zs_pred[:,self.cfg.latent_dim:].exp()
+		if diff:
+			z_mu = z_mu + zs_obs
+		return z_mu[0].detach().cpu().numpy(), z_sig2[0].detach().cpu().numpy()
+	
+	def control_update(self, episode, diff=True):
 		"""
 		Adpative control update function.
 		
@@ -305,34 +325,59 @@ class TDMPC2:
 			dict: Dictionary of training statistics.
 		"""
 		episode = episode.to(self.device, non_blocking=True)
+
 		obs, action, reward = episode['obs'], episode['action'][1:], episode['reward'][1:]
 		ep_len = len(obs)
 		task = None
 		# print(obs.shape, action.shape, reward.shape)
 
+		# print("Episode length:", ep_len)
+
 		# Prepare for update
 		self.ctrl_pi_optim.zero_grad(set_to_none=True)
+		self.pi_optim.zero_grad(set_to_none=True) # get these gradient, then transfer to self.model._ctrl_pi
 		self.ctrl_dyn_optim.zero_grad(set_to_none=True)
 		self.model.train()
 
 		# Compare latent predictions
 		zs_obs = self.model.encode(obs, task).detach()
-		zs_pred = self.model.ctrl_pred(zs_obs[:-1], action, task)
+		zs_pred = self.model.ctrl_pred(zs_obs[:-1], action, task)[:-self.cfg.ctrl_horizon+1]
+		mu, sig = zs_pred[:,:self.cfg.latent_dim], zs_pred[:,self.cfg.latent_dim:].exp()
 
-		consistency_loss = F.mse_loss(zs_pred[:-self.cfg.horizon+1], zs_obs[self.cfg.horizon:]) 
-		consistency_loss *= (1/(ep_len - self.cfg.horizon - 1))
+		if diff:
+			target = zs_obs[self.cfg.ctrl_horizon:] - zs_obs[:-self.cfg.ctrl_horizon]
+		else:
+			target = zs_obs[self.cfg.ctrl_horizon:]
+
+		if self.cfg.ctrl_mse:
+			consistency_loss = F.mse_loss(mu, target) 
+			sig = torch.zeros(1)
+		else: 
+			loss = torch.nn.GaussianNLLLoss()
+			consistency_loss = loss(mu, target, sig)
+		
+		# consistency_loss *= (1/(ep_len - self.cfg.ctrl_horizon - 1))
 
 		# Update model
 		consistency_loss.backward()
 		# grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.grad_clip_norm)
 
-		self.ctrl_pi_optim.step()
+		if (self.model._pi[-1].weight.grad is not None):
+			# update self.model._ctrl_pi instead:
+			self.model._ctrl_pi.weight.grad = self.model._pi[-1].weight.grad[:self.cfg.action_dim].clone()
+
+			self.ctrl_pi_optim.step() 
+
+		# print("ctrl pi norms:", self.model._ctrl_pi.weight.norm(), self.model._ctrl_pi.bias.norm())
+
 		self.ctrl_dyn_optim.step()
 
 		# Return training statistics
 		self.model.eval()
 		return {
 			"ctrl_loss": float(consistency_loss.mean().item()),
+			"ctrl_sig": sig.mean().sqrt().item(),
+			"ctrl_dist": (mu[:self.cfg.dist_range,:2]-target[:self.cfg.dist_range,:2]).norm(dim=1).mean()
 			# "grad_norm_ctrl": float(grad_norm)
 		}
 	

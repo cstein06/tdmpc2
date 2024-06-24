@@ -14,6 +14,7 @@ CONSOLE_FORMAT = [
 	("episode", "E", "int"),
 	("step", "I", "int"),
 	("episode_reward", "R", "float"),
+	("episode_length", "L", "int"),
 	("episode_success", "S", "float"),
 	("total_time", "T", "time"),
 ]
@@ -97,7 +98,7 @@ class VideoRecorder:
 	def save(self, step, key='videos/eval_video'):
 		if self.enabled and len(self.frames) > 0:
 			frames = np.stack(self.frames)
-			print(self.fps)
+			# print('video fps:': self.fps)
 			return self._wandb.log(
 				{key: self._wandb.Video(frames.transpose(0, 3, 1, 2), fps=self.fps, format='mp4')}, step=step
 			)
@@ -155,10 +156,14 @@ class Logger:
 	def save_agent(self, agent=None, identifier='final'):
 		if self._save_agent and agent:
 			fp = self._model_dir / f'{str(identifier)}.pt'
+			print("Saving model to:", fp)
 			agent.save(fp)
 			if self._wandb:
 				artifact = self._wandb.Artifact(
-					self._group + '-' + str(self._seed) + '-' + str(identifier),
+					self._group + '-' + \
+						self._wandb.run.name
+						# str(self._seed) \
+							+ '-' + str(identifier),
 					type='model',
 				)
 				artifact.add_file(fp)
@@ -237,3 +242,7 @@ class Logger:
 				self._log_dir / "eval.csv", header=keys, index=None
 			)
 		self._print(d, category)
+
+	def log_wandb_artifact(self, artifact, key='model'):
+		if self._wandb:
+			self._wandb.log_artifact(artifact, aliases=[key])

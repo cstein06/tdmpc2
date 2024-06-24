@@ -38,7 +38,10 @@ def parse_cfg(cfg: OmegaConf) -> OmegaConf:
 	# Convenience
 	# print(hydra.utils.get_original_cwd())
 	# dir_aux = Path('G:\My Drive\work\projects\cerebellum\code\tdmpc2\tdmpc2')
-	dir_aux = Path(hydra.utils.get_original_cwd())
+	# dir_aux = Path(hydra.utils.get_ori ginal_cwd())
+	dir_aux = Path.cwd()
+	# wandb run name:
+	
 	cfg.work_dir = dir_aux / 'logs' / cfg.task / str(cfg.seed) / cfg.exp_name
 	cfg.task_title = cfg.task.replace("-", " ").title()
 	cfg.bin_size = (cfg.vmax - cfg.vmin) / (cfg.num_bins-1) # Bin size for discrete regression

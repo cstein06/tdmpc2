@@ -53,6 +53,22 @@ def train(cfg: dict):
 		buffer=Buffer(cfg),
 		logger=Logger(cfg),
 	)
+
+	if cfg.checkpoint_local:
+		assert os.path.exists(cfg.checkpoint_local), f'Checkpoint {cfg.checkpoint_local} not found! Must be a valid filepath.'
+		print("Loading checkpoint:", cfg.checkpoint_local)
+		# agent.load(cfg.checkpoint_local)
+		# TODO
+		print("This loading not implemented yet.")
+
+	if cfg.checkpoint_wandb:
+		print("Loading wandb artifact:", cfg.checkpoint_wandb)
+		artifact = trainer.logger._wandb.run.use_artifact(cfg.checkpoint_wandb, type='model')
+		artifact_dir = artifact.download()
+		artifact_path = artifact_dir + f'/{cfg.checkpoint_filename}'
+		print("Artifact path:", artifact_path)
+		trainer.agent.load(artifact_path)
+
 	trainer.train()
 	print('\nTraining completed successfully')
 
