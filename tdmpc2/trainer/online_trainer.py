@@ -297,7 +297,7 @@ class OnlineTrainer(Trainer):
 
 					# Update agent
 					if (self._step >= self.cfg.seed_steps) and self.cfg.train_agent:
-						if self._step == self.cfg.seed_steps:
+						if self._step < self.cfg.seed_steps + self.cfg.episode_length:
 							num_updates = int(self.cfg.updates_per_step * self.cfg.seed_steps)
 							print('Pretraining agent on seed data...')
 							# num_updates = 10
