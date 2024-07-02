@@ -102,7 +102,7 @@ class OnlineTrainer(Trainer):
 
 		mid_point = (np.array(self.cfg.target) + self.cfg.init_state[:2]) / 2.
 		# deviation = (ep_tds[0]["obs"][:,:2]**2).sum(axis=0).min().item() # deviation from origin
-		deviation = ((ep_tds[0]["obs"][:,:2] - mid_point)**2).sum(axis=0).min().item() # deviation from midpoint
+		deviation = np.linalg.norm(ep_tds[0]["obs"][:,:2] - mid_point, axis=1).min().item() # deviation from midpoint
 		print("Deviation:", deviation)
 
 		# write log_episodes to file and save
@@ -202,7 +202,7 @@ class OnlineTrainer(Trainer):
 
 		self.env.unwrapped.task._terminate_at_target = self.cfg.terminate_at_target
 
-		if self.cfg.friction:
+		if self.cfg.friction is not None:
 			phys.named.model.geom_friction[:,0] = self.cfg.friction
 
 		if self.cfg.terminate_at_target:

@@ -60,11 +60,11 @@ init_state: [-0.2, 0.,  0.,  0.]
 # target: [0.1, 0.1] # ang, radius
 target: [0.2, 0.2] # x, y
 
-friction: 0.
+friction: 0. # not sure this works. change 'damping' in pointmass.xml
 
 target_size: 0.02
-target_margin: 0.3
-control_cost: 0. #0.1
+target_margin: 0.6 #0.3
+control_cost: 1. #0.1
 target_reward: 1.
 control_norm_thres: 0. #0.4
 
@@ -87,6 +87,8 @@ enc_dim: 256
 
 action_repeat: 2
 
+episode_length: 200 # 500
+
 ################ pre train ######## 
 
 perturb: true
@@ -96,7 +98,7 @@ action_noise: 0.1
 action_skip: 0
 obs_noise: 0.
 
-force_field: true
+force_field: false
 force_field_scale: 5.
 
 action_limit: true
@@ -122,6 +124,9 @@ seed_random: false
 # action_noise: 0. # 0.1
 # action_skip: 0 # 20
 # obs_noise: 0. # 0.01
+
+# force_field: false
+# # force_field_scale: 5.
 
 # action_limit: false
 
@@ -159,11 +164,12 @@ latent_dim: 4
 action_arrow_scale: 0.02
 dist_range: 100
 
-checkpoint_wandb: false
+# checkpoint_wandb: false
 # checkpoint_wandb: 'cstein06/control/pointmass-easy-default-1-final:v19'
 # checkpoint_wandb: 'cstein06/control/pointmass-easy-default-charmed-fire-181-final:v0'
 # checkpoint_wandb: 'cstein06/control/pointmass-easy-default-charmed-firefly-361-final:v0'
 # checkpoint_wandb: 'cstein06/control/pointmass-easy-default-clean-breeze-368-final:v0'
+checkpoint_wandb: 'cstein06/control/pointmass-easy-default-desert-bird-388-final:v0'
 checkpoint_filename: 'final.pt'
 checkpoint_local: false
 
@@ -191,7 +197,6 @@ multitask: ???
 tasks: ???
 obs_shape: ???
 action_dim: ???
-episode_length: ???
 obs_shapes: ???
 action_dims: ???
 episode_lengths: ???
