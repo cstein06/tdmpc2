@@ -5,7 +5,7 @@ defaults:
 # task: dog-run
 # task: humanoid-stand
 # task: reacher-hard
-task: pointmass-easy
+task: pointmass-mine
 
 device: cuda
 # device: mps
