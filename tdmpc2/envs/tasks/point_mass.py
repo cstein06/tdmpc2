@@ -136,7 +136,7 @@ class PointMass(base.Task):
     # print("near_target", near_target)
     # print("control_reward", control_reward)
     
-    return near_target * self._target_reward - self._control_cost * control_norm**2
+    return near_target * self._target_reward #- self._control_cost * control_norm**2 # moved control cost to online_trainer.py
   
   def get_termination(self, physics):
     """Terminates the episode if the mass has reached

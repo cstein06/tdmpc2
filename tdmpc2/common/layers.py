@@ -91,7 +91,7 @@ def enc(cfg, out={}):
 	"""
 	for k in cfg.obs_shape.keys():
 		assert k == 'state'
-		out[k] = mlp(cfg.obs_shape[k][0] + cfg.task_dim, max(cfg.num_enc_layers-1, 1)*[cfg.enc_dim], cfg.latent_dim, act=SimNorm(cfg))
+		out[k] = mlp(cfg.obs_shape[k][0] + cfg.task_dim, max(cfg.num_enc_layers-1, 1)*[cfg.enc_dim], cfg.latent_dim, out_activ=SimNorm(cfg) if cfg.use_simnorm else None)
 	return nn.ModuleDict(out)
 
 
@@ -106,5 +106,5 @@ def mlp(in_dim, mlp_dims, out_dim, hidden_activ=None, out_activ=None, dropout=0.
 	mlp = nn.ModuleList()
 	for i in range(len(dims) - 2):
 		mlp.append(NormedLinear(dims[i], dims[i+1], dropout=dropout*(i==0), activ=hidden_activ))
-	mlp.append(NormedLinear(dims[-2], dims[-1], act=out_activ) if out_activ else nn.Linear(dims[-2], dims[-1]))
+	mlp.append(NormedLinear(dims[-2], dims[-1], activ=out_activ) if out_activ else nn.Linear(dims[-2], dims[-1]))
 	return nn.Sequential(*mlp)

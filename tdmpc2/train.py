@@ -1,10 +1,12 @@
 import os
 # os.environ['MUJOCO_GL'] = 'egl'
+import sys
 import warnings
 # warnings.filterwarnings('ignore')
 import torch
 
 import hydra
+import hydra.utils
 from termcolor import colored
 
 from common.parser import parse_cfg
@@ -55,9 +57,10 @@ def train(cfg: dict):
 	)
 
 	if cfg.checkpoint_local:
-		assert os.path.exists(cfg.checkpoint_local), f'Checkpoint {cfg.checkpoint_local} not found! Must be a valid filepath.'
-		print("Loading checkpoint:", cfg.checkpoint_local)
-		# agent.load(cfg.checkpoint_local)
+		full_path = os.path.join(hydra.utils.get_original_cwd(), cfg.checkpoint_local)
+		assert os.path.exists(full_path), f'Checkpoint {full_path} not found! Must be a valid filepath.'
+		print("Loading checkpoint:", full_path)
+		trainer.agent.load(full_path)
 		# TODO
 		print("This loading not implemented yet.")
 
@@ -68,8 +71,17 @@ def train(cfg: dict):
 		artifact_path = artifact_dir + f'/{cfg.checkpoint_filename}'
 		print("Artifact path:", artifact_path)
 		trainer.agent.load(artifact_path)
+    
+	try:
+		trainer.train()
+	except KeyboardInterrupt:
+		print('Interrupted. Saving model and exiting...')
+		trainer.logger.finish(trainer.agent)
+		try:
+			sys.exit(130)
+		except SystemExit:
+			os._exit(130)
 
-	trainer.train()
 	print('\nTraining completed successfully')
 
 

@@ -41,11 +41,11 @@
     
     <geom name="optimal" material="decoration" type="cylinder" fromto="-0.2 -0. 0.005 0.2 0.2 0.005" size="0.0005" mass="0" rgba="0 0 0 0.4"/>  # color: black
 
-    <geom name="action_orig" pos="0 0 .01" material="target" type="sphere" size=".005" rgba="0 0 0 0.4"/> # color: black
+    <geom name="action_orig" pos="0 0 .01" material="target" type="sphere" size=".007" rgba="0 0 0 0.4"/> # color: black
 
-    <geom name="action_total" pos="0 0 .01" material="target" type="sphere" size=".005" rgba="0.7 0.7 0.7 0.4"/> # color: gray
+    <geom name="action_total" pos="0 0 .03" material="target" type="sphere" size=".003" rgba="0.7 0.7 0.7 0.35"/> # color: gray
 
-    <geom name="action_eff" pos="0 0 .02" material="target" type="sphere" size=".005" rgba="0 1 0 0.4"/> # color: green
+    <geom name="action_eff" pos="0 0 .03" material="target" type="sphere" size=".002" rgba="0 1 0 0.4"/> # color: green
 
     <geom name="action_ctrl" pos="0 0 .02" material="target" type="sphere" size=".005" rgba="0.5 0 0.5 0.4"/> # color: purple
     

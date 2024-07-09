@@ -1,3 +1,5 @@
+import random
+import stat
 from time import time
 
 import numpy as np
@@ -5,6 +7,7 @@ import torch
 from tensordict.tensordict import TensorDict
 from tqdm import tqdm
 
+from common import init
 from trainer.base import Trainer
 
 
@@ -35,12 +38,16 @@ class OnlineTrainer(Trainer):
 			# _tds = [self.to_td(obs)]
 			_tds = []
 			
-			if i < 2 or self.cfg.fixed_init_state:
-				obs = self.set_init_state()
+			if (i < 2 or self.cfg.fixed_init_state):
+				state = self.set_init_state()
+				obs = torch.tensor(self.cfg.init_obs)
 
 			while not done:
 				if self.cfg.perturb:
 					obs_pert = self.perturb_obs(obs)
+				else:
+					obs_pert = obs
+
 
 				action, action_orig, action_ctrl = self.agent.act(obs_pert, t0=t==0, eval_mode=True, ctrl=self.cfg.control)
 				action = action.detach()
@@ -49,12 +56,16 @@ class OnlineTrainer(Trainer):
 
 				if self.cfg.perturb:
 					action_eff = self.perturb(action, obs=obs)
+				else:
+					action_eff = action
 					
 				new_obs, reward, done, info = self.env.step(action_eff)
+
+				state = torch.tensor(self.env.unwrapped.physics.get_state())
 				
 				_tds.append(self.to_td(obs, action_orig, reward,
 								action_eff=action_eff, action_ctrl=action_ctrl,
-								action_total=action))
+								action_total=action, state=state))
 				obs = new_obs
 
 				ep_reward += reward
@@ -73,14 +84,9 @@ class OnlineTrainer(Trainer):
 				for t_ in range(0, t):
 
 					phys = self.env.unwrapped.physics
-					phys.set_state(_tds[t_]["obs"].numpy())
+					phys.set_state(_tds[t_]["state"].numpy())
 
-					_, _, done, _ = self.env.step(torch.zeros_like(action))
-
-					if done:
-						break
-
-					if self.cfg.control:
+					if self.cfg.control and self.cfg.task[:9] == 'pointmass':
 						# print("position:", obs[:2])
 						# print("action:", action)
 						# print("action_eff:", action_eff)
@@ -95,15 +101,33 @@ class OnlineTrainer(Trainer):
 						# if t % 50 == -1:
 						# 	print("Observation:", obs)
 						# 	print("Prediction:", pred)
-							
+
+					# TODO instead of stepping, update physics state directly,
+					# possibly with camera.update()
+					# Current step() approach makes the state delayed by one step
+					_, _, done, _ = self.env.step(torch.zeros_like(action))
+
+					if done:
+						break
+
 					self.logger.video.record(self.env)
 
 				self.logger.video.save(self._step, key=f'videos/eval_video_{i+1}')
 
 		mid_point = (np.array(self.cfg.target) + self.cfg.init_state[:2]) / 2.
 		# deviation = (ep_tds[0]["obs"][:,:2]**2).sum(axis=0).min().item() # deviation from origin
-		deviation = np.linalg.norm(ep_tds[0]["obs"][:,:2] - mid_point, axis=1).min().item() # deviation from midpoint
+		dists = np.linalg.norm(ep_tds[0]["obs"][:,:2] - mid_point, axis=1)
+		deviation = dists.min().item() 
+		# deviation from midpoint, signed.
+		min_idx = dists.argmin()
+		dev = (ep_tds[0]["obs"][min_idx,:2] - mid_point)
+		ref = (np.array(self.cfg.target) - mid_point)
+		ref = ref / np.linalg.norm(ref)
+		# projection of dev orthogonal to ref:
+		deviation_signed = np.cross(dev, ref)
+		
 		print("Deviation:", deviation)
+		print("Deviation signed:", deviation_signed)
 
 		# write log_episodes to file and save
 		torch.save(ep_tds, self.cfg.work_dir / 'log_episodes.npy')
@@ -116,6 +140,7 @@ class OnlineTrainer(Trainer):
 			episode_success=np.nanmean(ep_successes),
 			episode_length=np.nanmean(ep_lens),
 			deviation=deviation,
+			deviation_signed=deviation_signed,
 		)
 
 	def to_td(self, obs, action=None, reward=None, **kwargs):
@@ -143,12 +168,27 @@ class OnlineTrainer(Trainer):
 		print("Updating perturbation factor... Perturb scale:", self.cfg.perturb_scale)
 		# self.perturb_factor = self.cfg.perturb_scale * torch.randn(self.env.action_space.shape[0]) #  random
 		# self.perturb_factor = self.cfg.perturb_scale * torch.tensor([-1.,1.]) * (((self._step / self.cfg.perturb_steps) % 5) - 2) / 2.
+		act_dim = self.env.action_space.shape[0]
+		if self.cfg.perturb_ang is not None:
+			# rotation matrix for cfg.perturb_rotation
+			rot = self.cfg.perturb_ang * np.pi / 2
+			rot_matrix = lambda r: torch.tensor([[np.cos(r), -np.sin(r)], [np.sin(r), np.cos(r)]]).float()
+			pert_matrix = rot_matrix(rot) 
+			pert_matrix_neg = rot_matrix(-rot) 
+		else:
+			pert_matrix = torch.eye(act_dim)
+			pert_matrix_neg = torch.eye(act_dim)
+
+		self.pert_scale = torch.FloatTensor(act_dim).uniform_(1 - self.cfg.perturb_scale, 1 + self.cfg.perturb_scale).unsqueeze(0)
+		# print("Perturb scale:", self.pert_scale.numpy())
+		pert_matrix = pert_matrix * self.pert_scale
+		pert_matrix_neg = pert_matrix_neg * self.pert_scale
 
 		# seq = [torch.tensor([-1.,1.]), torch.tensor([1.,-1.])]
 		# seq = [torch.tensor([-1.,1.])]
-		seq = [torch.tensor([0.,0.]), torch.tensor([-1.,1.])]
+		seq = [torch.eye(act_dim), pert_matrix, torch.eye(act_dim), pert_matrix_neg]
 		step = (self._step // self.cfg.perturb_steps) % len(seq)
-		self.perturb_factor = self.cfg.perturb_scale * seq[step]
+		self.perturb_factor = seq[step]
 		print("Perturb factor:", self.perturb_factor.numpy())
 
 	def action_skip(self):
@@ -159,7 +199,8 @@ class OnlineTrainer(Trainer):
 
 	def perturb(self, action, obs=None):
 		"""Perturb action space."""
-		action_pert = action * (1. + self.perturb_factor + self.cfg.action_noise * torch.randn_like(action)) * self.action_skip()
+		action_rot = action @ self.perturb_factor 
+		action_pert = action_rot * (1. + self.cfg.action_noise * torch.randn_like(action)) * self.action_skip()
 
 		if self.cfg.force_field:
 			opt_dir = np.array(self.cfg.target) - self.cfg.init_state[:2]
@@ -177,7 +218,8 @@ class OnlineTrainer(Trainer):
 
 	def set_init_state(self):
 		phys = self.env.unwrapped.physics
-		phys.set_state(np.array(self.cfg.init_state)) # fixed initial conditions
+		init_state = np.array(self.cfg.init_state) + self.cfg.init_noise * np.random.randn(len(self.cfg.init_state))
+		phys.set_state(init_state) # fixed initial conditions
 
 		return torch.tensor(self.cfg.init_state)
 
@@ -240,10 +282,11 @@ class OnlineTrainer(Trainer):
 		"""Train a TD-MPC2 agent."""
 		train_metrics, done, eval_next = {}, True, True
 
-		self.set_env()
+		if self.cfg.task[:9] == 'pointmass':
+			self.set_env()
 		
 		if self.cfg.perturb:
-			self.perturb_factor = torch.zeros(self.env.action_space.shape[0])
+			self.perturb_factor = torch.eye(self.env.action_space.shape[0])
 
 		while self._step <= self.cfg.steps:
 
@@ -269,12 +312,16 @@ class OnlineTrainer(Trainer):
 						_train_metrics = self.agent.control_update(torch.cat(self._tds))
 						train_metrics.update(_train_metrics)
 						
-						train_metrics.update({"perturb_factor": self.perturb_factor.numpy()})
+						if self.cfg.perturb:
+							train_metrics.update({"perturb_factor_0": self.perturb_factor[0]})
+							train_metrics.update({"perturb_factor_1": self.perturb_factor[1]})
 
 					# Log episode
 					train_metrics.update(
-						episode_reward=torch.tensor([td['reward'] for td in self._tds[1:]]).sum(),
+						episode_reward=torch.tensor([td['reward_task'] for td in self._tds[1:]]).sum(),
 						episode_success=info['success'],
+						episose_reward_total=torch.tensor([td['reward'] for td in self._tds[1:]]).sum(),
+						episode_reward_ctrl=torch.tensor([td['reward_ctrl'] for td in self._tds[1:]]).sum(),
 					)
 					train_metrics.update(self.common_metrics())
 					self.logger.log(train_metrics, 'train')
@@ -317,9 +364,11 @@ class OnlineTrainer(Trainer):
 				obs = self.env.reset()
 
 				if self.cfg.fixed_init_state:
-					obs = self.set_init_state()
+					state = self.set_init_state()
+					obs = torch.tensor(self.cfg.init_obs)
 
-				self._tds = [self.to_td(obs)]
+				self._tds = [self.to_td(obs, reward_task=torch.tensor(float('nan')),
+							reward_ctrl=torch.tensor(float('nan')))]
 
 			# Collect experience
 			if (self._step > self.cfg.seed_steps) or (not self.cfg.seed_random):
@@ -338,12 +387,21 @@ class OnlineTrainer(Trainer):
 			else:
 				effective_action = action
 
-			obs, reward, done, info = self.env.step(effective_action.detach())
+			obs, reward_orig, done, info = self.env.step(effective_action.detach())
+
+			# TODO: remove control cost for pointmass.py task
+			if self.cfg.control_cost:
+				reward_ctrl = - self.cfg.control_cost * (action_orig**2).sum()
+			else:
+				reward_ctrl = torch.tensor(0.)
+
+			reward_total = reward_orig + reward_ctrl
+
 			if self.cfg.perturb:
 				obs = self.perturb_obs(obs)
-			self._tds.append(self.to_td(obs, action_orig, reward)) # which action to use?
+			self._tds.append(self.to_td(obs, action_orig, reward_total, reward_task=reward_orig, reward_ctrl=reward_ctrl)) # which action to use?
 
-			if self.cfg.perturb and (self.cfg.perturb_scale > 0.) and (self._step >= self.cfg.seed_steps) and \
+			if self.cfg.perturb and (self.cfg.perturb_scale is not None) and (self._step >= self.cfg.seed_steps) and \
 			(self._step % self.cfg.perturb_steps == 0):
 				self.update_perturb()
 

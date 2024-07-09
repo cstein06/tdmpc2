@@ -364,7 +364,7 @@ class TDMPC2:
 
 		if (self.model._pi[-1].weight.grad is not None):
 			# update self.model._ctrl_pi instead:
-			self.model._ctrl_pi.weight.grad = self.model._pi[-1].weight.grad[:self.cfg.action_dim].clone()
+			self.model._ctrl_pi.weight.grad = -self.model._pi[-1].weight.grad[:self.cfg.action_dim].clone()
 
 			self.ctrl_pi_optim.step() 
 

@@ -27,9 +27,11 @@ class WorldModel(nn.Module):
 			out_activ = None
 			# hidden_activ = nn.Sigmoid()
 			hidden_activ = nn.Mish(inplace=True)
+			cfg.latent_dim = cfg.obs_shape['state'][0]
 		else:
 			self._encoder = layers.enc(cfg)
-			out_activ = layers.SimNorm(cfg)
+			# out_activ = layers.SimNorm(cfg)
+			out_activ = layers.SimNorm(cfg) if cfg.use_simnorm else None
 			hidden_activ = nn.Mish(inplace=True)
 		
 		self._ctrl_dynamics = layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim, cfg.num_ctrl_layers*[cfg.ctrl_dim], 2*cfg.latent_dim, out_activ=out_activ, hidden_activ=hidden_activ) # output with (mu_z,sig_z)

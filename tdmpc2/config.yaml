@@ -5,7 +5,8 @@ defaults:
 # task: dog-run
 # task: humanoid-stand
 # task: reacher-hard
-task: pointmass-mine
+# task: pointmass-mine
+task: walker-walk
 
 device: cuda
 # device: mps
@@ -55,16 +56,29 @@ entropy_coef: 1e-4
 # fixed eval run
 # init_state: [-0.2, -0.2,  0.,  0.]
 
-init_state: [-0.2, 0.,  0.,  0.]
+fixed_init_state: true
+# init_state: [-0.2, 0.,  0.,  0.]
+init_state: [-6.5718e-02,  1.0660e+00, -3.1450e-01, -8.1257e-02, -6.2933e-01,
+         3.9723e-01, -3.5721e-01, -9.1224e-01, -8.8007e-01,  2.3683e-01,
+         1.0688e+00, -1.6105e+00, -5.2349e+00,  3.6990e+00,  3.0214e-01,
+        -2.0472e-03, -7.0046e-01,  1.8839e+00]
+
+init_obs: [ 9.7313e-01, -2.3024e-01,  9.2052e-01, -3.9068e-01,  9.2715e-01,
+         3.7470e-01,  9.9999e-01,  4.9157e-03,  9.9222e-01,  1.2452e-01,
+         5.4228e-01,  8.4020e-01,  8.4209e-02,  9.9645e-01,  1.2196e+00,
+         3.5098e-01,  1.0451e+00, -1.6848e+00, -4.7636e+00,  2.4429e+00,
+         9.6149e-01, -1.4970e-03, -1.4201e+00, -1.3856e+01]
+init_noise: 0.2
 
 # target: [0.1, 0.1] # ang, radius
+# target: [0., 0.1] # x, y
 target: [0.2, 0.2] # x, y
 
 friction: 0. # not sure this works. change 'damping' in pointmass.xml
 
 target_size: 0.02
-target_margin: 0.6 #0.3
-control_cost: 1. #0.1
+target_margin: 0.3 #0.3
+control_cost: 0. #1. #0.1
 target_reward: 1.
 control_norm_thres: 0. #0.4
 
@@ -73,27 +87,33 @@ target_end_dist: 0.02
 # target_margin: 0. 
 end_reward: null
 
-# critic
+# critic # not sure this is used
 num_bins: 101
 vmin: -10
 vmax: +10
 
 # architecture
 model_size: 0
+# use_simnorm: false
 
-no_enc: true
+# for expert
+# model_size: 5
+use_simnorm: true
+
+no_enc: false
+# no_enc: false
 num_enc_layers: 2
 enc_dim: 256
 
 action_repeat: 2
 
-episode_length: 200 # 500
 
 ################ pre train ######## 
 
-perturb: true
+perturb: false
 perturb_steps: -1
-perturb_scale: 0.
+perturb_scale: null
+perturb_ang: null
 action_noise: 0.1
 action_skip: 0
 obs_noise: 0.
@@ -104,10 +124,10 @@ force_field_scale: 5.
 action_limit: true
 
 # control
-seed_steps: 2500
+seed_steps: 250
 control: true 
 ctrl_mse: false
-ctrl_horizon: 8
+ctrl_horizon: 2
 
 lr_ctrl_pi: 0. #1e-4
 lr_ctrl_dyn: 5e-4
@@ -116,11 +136,29 @@ lr: 3e-4
 train_agent: true
 seed_random: false
 
+episode_length: 200
+
+#################################
+
+# # relearn ctrl dynamics
+# seed_steps: 2500
+# control: true 
+# ctrl_mse: false
+# ctrl_horizon: 2
+
+# lr_ctrl_pi: 0. #1e-4
+# lr_ctrl_dyn: 5e-4
+# pi_lr: 0.
+# lr: 0.
+# train_agent: false
+# seed_random: false
+
 ########### perturbation test ###########
 
 # perturb: true
 # perturb_steps: 20000
-# perturb_scale: 0.5 #0.5 
+# perturb_scale: 0.5 #[1., 1.] #0.5  
+# perturb_ang: null #-0.8 # 1. is 90 degrees
 # action_noise: 0. # 0.1
 # action_skip: 0 # 20
 # obs_noise: 0. # 0.01
@@ -128,16 +166,18 @@ seed_random: false
 # force_field: false
 # # force_field_scale: 5.
 
-# action_limit: false
+# action_limit: true
+
+# episode_length: 200
 
 # # control
 # seed_steps: 2500
 # control: true
 # # control: false
 # ctrl_mse: true #false
-# ctrl_horizon: 8
+# ctrl_horizon: 2
 
-# lr_ctrl_pi: 4e-3
+# lr_ctrl_pi: 0.1e-4
 # lr_ctrl_dyn: 0.
 # pi_lr: 0.
 # lr: 0.
@@ -151,27 +191,24 @@ ctrl_sig_init: 0.02
 # lr_ctrl_dyn_last: 10e-5
 # ctrl_update_steps: 10
 
-fixed_init_state: false
-# num_ctrl_layers: 1
-# ctrl_dim: 256
 num_ctrl_layers: 2
 ctrl_dim: 512
 
 mlp_dim: 512
-# latent_dim: 512
-latent_dim: 4
+latent_dim: 128 #512
+# latent_dim: 4
 
-action_arrow_scale: 0.02
+action_arrow_scale: 0.25 #0.04
 dist_range: 100
 
-# checkpoint_wandb: false
-# checkpoint_wandb: 'cstein06/control/pointmass-easy-default-1-final:v19'
-# checkpoint_wandb: 'cstein06/control/pointmass-easy-default-charmed-fire-181-final:v0'
-# checkpoint_wandb: 'cstein06/control/pointmass-easy-default-charmed-firefly-361-final:v0'
-# checkpoint_wandb: 'cstein06/control/pointmass-easy-default-clean-breeze-368-final:v0'
-checkpoint_wandb: 'cstein06/control/pointmass-easy-default-desert-bird-388-final:v0'
+checkpoint_wandb: false
+# checkpoint_wandb: 'cstein06/control/pointmass-easy-default-bumbling-hill-414-final:v0'
+# checkpoint_wandb: 'cstein06/control/pointmass-mine-default-dry-pine-448-final:v0'
+# checkpoint_wandb: 'cstein06/control/walker-walk-default-copper-lake-525-final:v0'
 checkpoint_filename: 'final.pt'
+
 checkpoint_local: false
+# checkpoint_local: 'artifacts/walker-run-1.pt'
 
 task_dim: 96
 num_q: 5
