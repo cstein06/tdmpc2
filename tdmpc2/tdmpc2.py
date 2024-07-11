@@ -17,9 +17,17 @@ class TDMPC2:
 		self.cfg = cfg
 		self.device = torch.device(cfg.device)
 		self.model = WorldModel(cfg).to(self.device)
+
+		if cfg.lr_factor:
+			lr_factor = np.sqrt(cfg.batch_size / 512)
+			cfg.lr *= lr_factor
+			cfg.pi_lr *= lr_factor
+			cfg.lr_ctrl_dyn *= lr_factor
+			cfg.lr_ctrl_pi *= lr_factor
+
 		self.optim = torch.optim.Adam([
 			{'params': self.model._encoder.parameters(), 'lr': self.cfg.lr*self.cfg.enc_lr_scale},
-			{'params': self.model._dynamics.parameters()},
+			{'params': self.model._dynamics.parameters(), 'lr': self.cfg.dyn_lr},
 			{'params': self.model._reward.parameters()},
 			{'params': self.model._Qs.parameters()},
 			{'params': self.model._task_emb.parameters() if self.cfg.multitask else []}
@@ -30,7 +38,12 @@ class TDMPC2:
 			{'params': self.model._ctrl_dynamics.parameters()},
 		], lr=self.cfg.lr_ctrl_dyn)
 
-		self.ctrl_pi_optim = torch.optim.Adam(self.model._ctrl_pi.parameters(), lr=self.cfg.lr_ctrl_pi, eps=1e-5)
+		if self.cfg.ctrl_opt == 'adam':
+			self.ctrl_pi_optim = torch.optim.Adam(self.model._ctrl_pi.parameters(), lr=self.cfg.lr_ctrl_pi, eps=1e-5)
+		elif self.cfg.ctrl_opt == 'sgd':
+			self.ctrl_pi_optim = torch.optim.SGD(self.model._ctrl_pi.parameters(), lr=self.cfg.lr_ctrl_pi, momentum=0.9)
+		else:
+			raise ValueError("Invalid control optimiser")
 
 		self.model.eval()
 		self.scale = RunningScale(cfg)
@@ -104,7 +117,7 @@ class TDMPC2:
 
 			return a_total.cpu(), a.cpu(), a_ctrl.cpu()
 
-		return a.cpu()
+		return a.cpu(), a.cpu(), torch.zeros_like(a).cpu()
 
 	@torch.no_grad()
 	def _estimate_value(self, z, actions, task):
@@ -315,6 +328,86 @@ class TDMPC2:
 		return z_mu[0].detach().cpu().numpy(), z_sig2[0].detach().cpu().numpy()
 	
 	def control_update(self, episode, diff=True):
+		"""
+		Adpative control update function.
+		Learns control policy, uses _dynamics as forward model.
+		
+		Args:
+			episode (dict): Episode sample. Formatted as from the replay buffer. 
+		
+		Returns:
+			dict: Dictionary of training statistics.
+		"""
+		episode = episode.to(self.device, non_blocking=True)
+
+		obs, action, reward = episode['obs'], episode['action'][1:], episode['reward'][1:]
+		ep_len = len(obs)
+		a_len = len(action)
+		task = None
+		# print(obs.shape, action.shape, reward.shape)
+
+		# print("Episode length:", ep_len)
+
+		# Prepare for update
+		# self.ctrl_pi_optim.zero_grad(set_to_none=True) # learn only policy here.
+		self.pi_optim.zero_grad(set_to_none=True) # get these gradient, then transfer to self.model._ctrl_pi
+		self.ctrl_dyn_optim.zero_grad(set_to_none=True)
+		self.model.train()
+
+		# Compare latent predictions
+		zs_obs = self.model.encode(obs, task).detach()
+		
+		H = self.cfg.ctrl_horizon
+		Z = self.cfg.latent_dim
+		zs_pred = zs_obs[:-H].detach()
+		a_pred = action #.detach().requires_grad_()
+		for i in range(H):
+			# print(zs_pred.shape, a_pred[i:a_len-H+i+1].shape, task)
+			zs_pred = self.model.next(zs_pred[:,:Z], a_pred[i:a_len-H+i+1], task)
+		mu, sig = zs_pred[:,:Z], zs_pred[:,Z:].exp()
+
+		if diff:
+			target = zs_obs[H:] - zs_obs[:-H]
+		else:
+			target = zs_obs[H:]
+
+		if self.cfg.ctrl_mse:
+			consistency_loss = F.mse_loss(mu, target) 
+			sig = torch.zeros(1)
+		else: 
+			loss = torch.nn.GaussianNLLLoss()
+			consistency_loss = loss(mu, target, sig)
+		
+		# consistency_loss *= (1/(ep_len - self.cfg.ctrl_horizon - 1))
+
+		# Update model
+		consistency_loss.backward()
+		# grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.grad_clip_norm)
+
+		# Backward to policy weights
+		# action.backward(a_pred.grad, retain_graph=True)
+
+		if (self.model._pi[-1].weight.grad is not None):
+			# update self.model._ctrl_pi instead:
+			self.model._ctrl_pi.weight.grad = -self.model._pi[-1].weight.grad[:self.cfg.action_dim].clone()
+
+			self.ctrl_pi_optim.step() 
+
+		# print("ctrl pi norms:", self.model._ctrl_pi.weight.norm(), self.model._ctrl_pi.bias.norm())
+
+		# self.ctrl_dyn_optim.step()
+
+		# Return training statistics
+		self.model.eval()
+		return {
+			"ctrl_loss": float(consistency_loss.mean().item()),
+			"ctrl_sig": sig.mean().sqrt().item(),
+			"ctrl_dist": (mu[:self.cfg.dist_range,:2]-target[:self.cfg.dist_range,:2]).norm(dim=1).mean()
+			# "grad_norm_ctrl": float(grad_norm)
+		}
+	
+
+	def control_update_old(self, episode, diff=True):
 		"""
 		Adpative control update function.
 		

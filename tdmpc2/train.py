@@ -61,8 +61,6 @@ def train(cfg: dict):
 		assert os.path.exists(full_path), f'Checkpoint {full_path} not found! Must be a valid filepath.'
 		print("Loading checkpoint:", full_path)
 		trainer.agent.load(full_path)
-		# TODO
-		print("This loading not implemented yet.")
 
 	if cfg.checkpoint_wandb:
 		print("Loading wandb artifact:", cfg.checkpoint_wandb)

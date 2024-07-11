@@ -17,7 +17,7 @@ from tdmpc2 import TDMPC2
 torch.backends.cudnn.benchmark = True
 
 
-@hydra.main(config_name='config', config_path='.')
+@hydra.main(config_name='config_orig', config_path='.')
 def evaluate(cfg: dict):
 	"""
 	Script for evaluating a single-task / multi-task TD-MPC2 checkpoint.
@@ -56,8 +56,9 @@ def evaluate(cfg: dict):
 
 	# Load agent
 	agent = TDMPC2(cfg)
-	assert os.path.exists(cfg.checkpoint), f'Checkpoint {cfg.checkpoint} not found! Must be a valid filepath.'
-	agent.load(cfg.checkpoint)
+	full_path = os.path.join(hydra.utils.get_original_cwd(), cfg.checkpoint_local)
+	assert os.path.exists(full_path), f'Checkpoint {full_path} not found! Must be a valid filepath.'
+	agent.load(full_path)
 	
 	# Evaluate
 	if cfg.multitask:
@@ -78,7 +79,8 @@ def evaluate(cfg: dict):
 			if cfg.save_video:
 				frames = [env.render()]
 			while not done:
-				action = agent.act(obs, t0=t==0, task=task_idx)
+				action = agent.act(obs, t0=t==0, #eval_mode=True, 
+					   			task=task_idx)[0].detach()
 				obs, reward, done, info = env.step(action)
 				ep_reward += reward
 				t += 1
