@@ -1,3 +1,4 @@
+from email.policy import strict
 import os
 # os.environ['MUJOCO_GL'] = 'egl'
 import sys
@@ -61,13 +62,15 @@ def train(cfg: dict):
 		assert os.path.exists(full_path), f'Checkpoint {full_path} not found! Must be a valid filepath.'
 		print("Loading checkpoint:", full_path)
 		trainer.agent.load(full_path)
-
 	if cfg.checkpoint_wandb:
-		print("Loading wandb artifact:", cfg.checkpoint_wandb)
-		artifact = trainer.logger._wandb.run.use_artifact(cfg.checkpoint_wandb, type='model')
+		
+		checkpoint_wandb = f'cstein06/control/{cfg.task}-default-{cfg.checkpoint_wandb}-final:v0'
+		print("Loading wandb artifact:", checkpoint_wandb)
+		artifact = trainer.logger._wandb.run.use_artifact(checkpoint_wandb, type='model')
 		artifact_dir = artifact.download()
 		artifact_path = artifact_dir + f'/{cfg.checkpoint_filename}'
 		print("Artifact path:", artifact_path)
+		
 		trainer.agent.load(artifact_path)
     
 	try:

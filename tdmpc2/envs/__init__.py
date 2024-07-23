@@ -60,4 +60,5 @@ def make_env(cfg):
 	# cfg.episode_length = env.max_episode_steps
 	cfg.episode_length = cfg.episode_length
 	# cfg.seed_steps = max(1000, 5*cfg.episode_length)
+	cfg.puppet = cfg.task.split('-')[0]
 	return env

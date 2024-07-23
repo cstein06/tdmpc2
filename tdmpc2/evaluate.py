@@ -17,7 +17,7 @@ from tdmpc2 import TDMPC2
 torch.backends.cudnn.benchmark = True
 
 
-@hydra.main(config_name='config_orig', config_path='.')
+@hydra.main(config_name='config', config_path='.')
 def evaluate(cfg: dict):
 	"""
 	Script for evaluating a single-task / multi-task TD-MPC2 checkpoint.
@@ -56,7 +56,7 @@ def evaluate(cfg: dict):
 
 	# Load agent
 	agent = TDMPC2(cfg)
-	full_path = os.path.join(hydra.utils.get_original_cwd(), cfg.checkpoint_local)
+	full_path = os.path.join(hydra.utils.get_original_cwd(), cfg.checkpoint)
 	assert os.path.exists(full_path), f'Checkpoint {full_path} not found! Must be a valid filepath.'
 	agent.load(full_path)
 	

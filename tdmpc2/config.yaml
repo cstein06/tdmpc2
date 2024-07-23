@@ -3,10 +3,10 @@ defaults:
 
 # environment
 # task: dog-run
-task: humanoid-walk
+task: humanoid-stand
 # task: reacher-hard
 # task: pointmass-mine
-# task: walker-run
+# task: walker-walk
 
 device: cuda
 # device: mps
@@ -20,9 +20,9 @@ num_videos: 3
 
 # training
 # steps: 10_000_000
-steps: 50_000
+steps: 100_000
 updates_per_step: 1.
-batch_size: 512
+batch_size: 256
 lr_factor: false
 consistency_coef: 20
 rho: 0.5
@@ -38,11 +38,12 @@ data_dir: ???
 
 # planning
 mpc: false
+# mpc: false
+# horizon: 10
 iterations: 6
 num_samples: 512
 num_elites: 64
 num_pi_trajs: 24
-horizon: 10
 min_std: 0.05
 max_std: 2
 temperature: 0.5
@@ -55,35 +56,6 @@ entropy_coef: 1e-4
 # fixed eval run
 # init_state: [-0.2, -0.2,  0.,  0.]
 
-fixed_init_state: false
-# init_state: [-0.2, 0.,  0.,  0.]
-# init_state: [-6.5718e-02,  1.0660e+00, -3.1450e-01, -8.1257e-02, -6.2933e-01,
-#          3.9723e-01, -3.5721e-01, -9.1224e-01, -8.8007e-01,  2.3683e-01,
-#          1.0688e+00, -1.6105e+00, -5.2349e+00,  3.6990e+00,  3.0214e-01,
-#         -2.0472e-03, -7.0046e-01,  1.8839e+00]
-
-# init_obs: [ 9.7313e-01, -2.3024e-01,  9.2052e-01, -3.9068e-01,  9.2715e-01,
-#          3.7470e-01,  9.9999e-01,  4.9157e-03,  9.9222e-01,  1.2452e-01,
-#          5.4228e-01,  8.4020e-01,  8.4209e-02,  9.9645e-01,  1.2196e+00,
-#          3.5098e-01,  1.0451e+00, -1.6848e+00, -4.7636e+00,  2.4429e+00,
-#          9.6149e-01, -1.4970e-03, -1.4201e+00, -1.3856e+01]
-
-# target: [0.1, 0.1] # ang, radius
-# target: [0., 0.1] # x, y
-target: [0.2, 0.2] # x, y
-
-friction: 0. # not sure this works. change 'damping' in pointmass.xml
-
-target_size: 0.02
-target_margin: 0.3 #0.3
-control_cost: .5 #0.1
-target_reward: 1.
-control_norm_thres: 0. #0.4
-
-terminate_at_target: false #true
-target_end_dist: 0.02
-# target_margin: 0. 
-end_reward: null
 
 # critic # not sure this is used
 num_bins: 101
@@ -91,60 +63,72 @@ vmin: -10
 vmax: +10
 
 # architecture
-# model_size: 0
-# use_simnorm: true #false
-
-# for expert
-model_size: 5
-use_simnorm: true
-
-no_enc: false
-# no_enc: false
 num_enc_layers: 2
 enc_dim: 256
 
 action_repeat: 2
 
+# for walker
+model_size: 5
+use_simnorm: true
+no_enc: false
+fixed_init_state: false  
+init_noise: 0.3
+
+# pointmass
+# model_size: 0
+# use_simnorm: false 
+# no_enc: true
+# fixed_init_state: false
+# init_noise: 0.
 
 ################ pre train ######## 
 
-perturb: false
-perturb_steps: -1
-perturb_scale: null
-perturb_ang: null
-action_noise: 0.1
-action_skip: 0
-obs_noise: 0.
+# perturb: false
+# perturb_steps: -1
+# perturb_scale: null
+# perturb_ang: null
+# action_noise: 0.1
+# action_skip: 0
+# obs_noise: 0.
+# OU_perturb: false
 
-force_field: false
-force_field_scale: 5.
+# force_field: false
+# force_field_scale: 5.
 
-action_limit: true
+# action_limit: true
 
-# control
-seed_steps: 2500
-control: false 
-ctrl_mse: false
-ctrl_horizon: 10
+# # control
+# control: false 
+# ctrl_mse: true
+# learn_sigma: false
+# ctrl_horizon: 5
 
-lr_ctrl_pi: 0. #1e-4
-lr_ctrl_dyn: 5e-4
-pi_lr: 3e-4
-dyn_lr: 3e-4
-lr: 3e-4
-reward_coef: 0.1
-value_coef: 0.1
-train_agent: false #true
-seed_random: false
-ctrl_opt: adam
-init_noise: 0.2
+# horizon: 5
+# control_cost: 0. #0.1
+# control_cost_L1: 0. 
+# lr_ctrl_pi: 0. #1e-4
+# lr_ctrl_dyn: 5e-4
+# pi_lr: 3e-4
+# dyn_lr: 3e-4
+# lr: 3e-4
+# reward_coef: 0.1
+# value_coef: 0.1
+# train_agent: true
+# seed_steps: 2500
+# seed_random: true
+# train_seed: false
+# ctrl_opt: adam
+# dyn_diff: false
 
-episode_length: 200
+# reset_pi: false
+
+# episode_length: 200
 
 #################################
 
-# # # relearn ctrl dynamics
-# perturb: true
+# # relearn ctrl dynamics
+# perturb: false
 # perturb_steps: 2000
 # perturb_scale: 0.4
 # perturb_ang: 4
@@ -161,7 +145,7 @@ episode_length: 200
 # seed_steps: 500
 # control: true 
 # ctrl_mse: true
-# ctrl_horizon: 10
+# ctrl_horizon: 3
 
 # lr_ctrl_pi: 0. #1e-4
 # lr_ctrl_dyn: 0. #5e-4
@@ -171,6 +155,8 @@ episode_length: 200
 # reward_coef: 0.
 # value_coef: 0.
 # train_agent: true
+# horizon: 3
+# control_cost: .1 #0.1
 # seed_random: false
 # ctrl_opt: adam
 # init_noise: 0.2
@@ -179,13 +165,68 @@ episode_length: 200
 
 ########### perturbation test ###########
 
+perturb: true
+perturb_steps: 10000
+perturb_scale: 0.5 #0.3 #0.4 #[1., 1.] #0.5  
+perturb_ang: null #0.4 # 1. is 90 degrees
+action_noise: 0. # 0.1
+action_skip: 0 # 20
+obs_noise: 0. # 0.01
+
+OU_perturb: false
+OU_theta: 0.01
+OU_sigma: 0.3
+
+force_field: false
+# force_field_scale: 5.
+
+action_limit: true
+
+episode_length: 200
+
+# control
+seed_steps: 500
+control: true
+# control: false
+ctrl_mse: true #false
+ctrl_horizon: 5
+
+ctrl_full: false
+ctrl_last_layer: false
+reset_pi: false
+
+# num_ctrl_iter: 5
+lr_ctrl_pi: 3.e-4
+ctrl_opt: adam
+lr_ctrl_dyn: 0.
+pi_lr: 0.
+lr: 0.
+dyn_lr: 0.
+reward_coef: 0.1
+value_coef: 0.1
+train_agent: false
+learn_sigma: false
+horizon: 3
+control_cost: .1 #0.1
+control_cost_L1: 0.
+dyn_diff: ???
+seed_random: false
+# init_noise: 0.
+
+########################
+# all together
+
 # perturb: true
-# perturb_steps: 10000
-# perturb_scale: 0.4 #[1., 1.] #0.5  
-# perturb_ang: null #-0.8 # 1. is 90 degrees
+# perturb_steps: -1
+# perturb_scale: 0. #0.3 #0.4 #[1., 1.] #0.5  
+# perturb_ang: null #0.4 # 1. is 90 degrees
 # action_noise: 0. # 0.1
 # action_skip: 0 # 20
 # obs_noise: 0. # 0.01
+
+# OU_perturb: true
+# OU_theta: 0.01
+# OU_sigma: 0.3
 
 # force_field: false
 # # force_field_scale: 5.
@@ -195,25 +236,30 @@ episode_length: 200
 # episode_length: 200
 
 # # control
-# seed_steps: 500
 # control: true
 # # control: false
 # ctrl_mse: true #false
-# ctrl_horizon: 10
+# ctrl_horizon: 3
 
-# lr_ctrl_pi: 0.3e-4
-# ctrl_opt: adam
-# lr_ctrl_dyn: 0.
-# pi_lr: 0.
-# lr: 0.
-# dyn_lr: 0.
+# horizon: 5
+# control_cost: 0.5 #0.1
+# control_cost_L1: 0. 
+# lr_ctrl_pi: 3e-4
+# lr_ctrl_dyn: 5e-4
+# pi_lr: 3e-4
+# dyn_lr: 3e-4
+# lr: 3e-4
 # reward_coef: 0.1
 # value_coef: 0.1
-# train_agent: false
+# train_agent: true
+# seed_steps: 2500
 # seed_random: false
-# init_noise: 0.
+# train_seed: false
+# ctrl_opt: adam
+# dyn_diff: false
+# learn_sigma: true
 
-########################
+##########################
 
 ctrl_sig_init: 0.02
 # lr_ctrl_dyn_hidden: 1e-5
@@ -227,23 +273,28 @@ mlp_dim: 512
 latent_dim: 512
 # latent_dim: 4
 
-action_arrow_scale: 0.25 #0.04
+action_arrow_scale: 0.04 # 0.25 
 dist_range: 100
 
 checkpoint_wandb: false
+# checkpoint_wandb: 'dulcet-hill-706'
 # checkpoint_wandb: 'cstein06/control/pointmass-easy-default-bumbling-hill-414-final:v0'
 # checkpoint_wandb: 'cstein06/control/pointmass-mine-default-dry-pine-448-final:v0'
-# checkpoint_wandb: 'cstein06/control/walker-run-default-graceful-water-610-final:v0'
+# checkpoint_wandb: 'graceful-water-610'
+# checkpoint_wandb: 'fallen-blaze-566'
+# checkpoint_wandb: 'sweet-resonance-653'
 checkpoint_filename: 'final.pt'
 
 # checkpoint_local: false
 # checkpoint_local: 'artifacts/walker-run-1.pt'
-checkpoint_local: 'artifacts/humanoid-walk-1.pt'
+checkpoint_local: 'artifacts/humanoid-stand-1.pt'
+# checkpoint_local:  'artifacts/walker-run-default-graceful-water-610-final-v0/final.pt'
+# checkpoint_local:  'artifacts/walker-walk-default-crisp-haze-569-final-v0/final.pt'
 
 task_dim: 96
 num_q: 5
 dropout: 0.01
-simnorm_dim: 8
+simnorm_dim: ??? # set it to 8 if expert, 4 if my old sims
 
 # logging
 wandb_project: control
@@ -268,3 +319,59 @@ obs_shapes: ???
 action_dims: ???
 episode_lengths: ???
 bin_size: ???
+puppet: ???
+
+
+# pointmass
+friction: 0. # not sure this works. change 'damping' in pointmass.xml
+
+# target: [0.1, 0.1] # ang, radius
+# target: [0., 0.1] # x, y
+target: [0.1, 0.1] # x, y
+
+target_size: 0.01
+target_margin: 0.15 #0.3
+target_reward: 1.
+control_norm_thres: 0. #0.4
+
+terminate_at_target: false #true
+target_end_dist: 0.01
+# target_margin: 0. 
+end_reward: null
+
+init_states: {"pointmass": {"obs": [-0.1, 0.,  0.,  0.], 
+                                "state": [-0.1, 0., 0., 0.]},
+"walker":
+{"state": [-6.5718e-02,  1.0660e+00, -3.1450e-01, -8.1257e-02, -6.2933e-01,
+         3.9723e-01, -3.5721e-01, -9.1224e-01, -8.8007e-01,  2.3683e-01,
+         1.0688e+00, -1.6105e+00, -5.2349e+00,  3.6990e+00,  3.0214e-01,
+        -2.0472e-03, -7.0046e-01,  1.8839e+00],
+"obs": [ 9.7313e-01, -2.3024e-01,  9.2052e-01, -3.9068e-01,  9.2715e-01,
+         3.7470e-01,  9.9999e-01,  4.9157e-03,  9.9222e-01,  1.2452e-01,
+         5.4228e-01,  8.4020e-01,  8.4209e-02,  9.9645e-01,  1.2196e+00,
+         3.5098e-01,  1.0451e+00, -1.6848e+00, -4.7636e+00,  2.4429e+00,
+         9.6149e-01, -1.4970e-03, -1.4201e+00, -1.3856e+01]},
+"humanoid": {"obs": [ 6.6932e-01, -1.6395e-01, -5.3628e-02,  8.2481e-02,  2.7128e-02,
+         3.5827e-01,  4.3621e-02,  9.3081e-02,  8.8382e-01, -2.0876e-01,
+        -4.5079e-01,  3.5679e-01,  4.2470e-02,  9.8746e-02,  8.8127e-01,
+         7.3520e-01,  9.6524e-01,  8.8136e-01, -1.0579e+00, -7.0647e-01,
+         8.8162e-01,  1.4564e+00,  6.0690e-02,  1.5016e-01,  1.4755e-01,
+        -1.3214e-01,  3.5000e-02, -1.2380e+00,  2.9291e-02, -1.4240e-01,
+         1.6070e-01, -5.0223e-02, -1.0612e-01, -1.2225e+00,  1.2571e-01,
+         8.4053e-02,  9.8850e-01, -1.9676e-02,  6.8245e-03,  4.2963e-02,
+        -6.7406e-02,  3.1641e-02,  4.9643e-02, -4.1075e-01, -4.9488e-01,
+         3.2289e-01, -9.5466e-02,  2.2982e-01,  9.0739e-01, -1.7548e-01,
+        -2.8302e-01, -9.1394e-03, -1.9827e-03, -4.5526e-01, -2.8509e-01,
+        -2.1157e-01, -6.6318e-01,  5.2148e-02, -1.0218e-02, -2.2782e-01,
+        -2.1261e-03,  4.7149e+00, -2.5734e+00, -9.4812e-03,  2.2542e-01,
+        -1.6291e+00,  3.8937e-04], "state": [ 3.2689e+00, -6.0496e-01,  1.2719e+00, -9.7757e-01, -6.0058e-02,
+         7.2176e-02, -1.8853e-01,  6.4909e-01, -1.1210e-01, -4.9973e-02,
+         1.0030e-01,  2.7470e-02,  3.5806e-01,  4.4005e-02,  1.2595e-02,
+         8.8161e-01, -1.9203e-01, -3.4836e-01,  3.2874e-01,  4.3635e-02,
+         1.4165e-01,  8.8130e-01,  9.6105e-01,  8.3189e-01,  8.8173e-01,
+        -1.0515e+00, -6.8333e-01,  8.8140e-01,  1.2707e-02, -5.1108e-02,
+         6.5900e-02,  6.4575e-01, -7.5959e-01,  1.3334e+00, -8.9746e-01,
+         1.3012e+00,  2.1310e-01, -3.1485e-01, -2.8271e-01,  1.6337e-02,
+         3.6535e-03, -1.1953e+00, -4.5163e-02,  8.9079e-01,  2.9491e+00,
+        -3.9434e-01,  3.5131e-02,  5.1974e-01, -7.0526e-02,  4.3985e+00,
+        -2.6887e+00, -5.3996e-03, -8.6195e-03,  1.9675e+00, -2.2794e-03]}}

@@ -1,4 +1,5 @@
 from copy import deepcopy
+from math import e
 
 import numpy as np
 import torch
@@ -38,24 +39,43 @@ class WorldModel(nn.Module):
 
 		self._dynamics = layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim, 2*[cfg.mlp_dim], cfg.latent_dim, out_activ=out_activ)
 
+		self._dynamics_sig = nn.Linear(cfg.mlp_dim, cfg.latent_dim)
+
 		self._reward = layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim, 2*[cfg.mlp_dim], max(cfg.num_bins, 1))
 
 		self._pi = layers.mlp(cfg.latent_dim + cfg.task_dim, 2*[cfg.mlp_dim], 2*cfg.action_dim)
 
-		# self._ctrl_pi = layers.mlp(cfg.mlp_dim, [], cfg.action_dim) # separate duplicate last layer for control. Deterministic policy
-		# could also simply use: 
-		self._ctrl_pi = nn.Linear(cfg.mlp_dim, cfg.action_dim)
+		if self.cfg.ctrl_full:
+			# trying out full mlp for control policy
+			self._ctrl_pi = layers.mlp(cfg.latent_dim + cfg.task_dim, 2*[cfg.mlp_dim], cfg.action_dim)
+		else:
+			# separate duplicate last layer for control. Deterministic policy
+			# self._ctrl_pi = layers.mlp(cfg.mlp_dim, [], cfg.action_dim) 
+			self._ctrl_pi = nn.Linear(cfg.mlp_dim, cfg.action_dim)
 
 		self._Qs = layers.Ensemble([layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim, 2*[cfg.mlp_dim], max(cfg.num_bins, 1), dropout=cfg.dropout) for _ in range(cfg.num_q)])
 		
 		self.apply(init.weight_init) ### WARNING: Initializes all module weights
 
-		nn.init.constant_(self._ctrl_pi.weight, 0.0) # zero init for ctrl pi
-		nn.init.constant_(self._ctrl_pi.bias, 0.0) # zero init for ctrl pi
+		if self.cfg.ctrl_full:
+			nn.init.xavier_uniform_(self._ctrl_pi[-1].weight, gain=0.001)
+			nn.init.constant_(self._ctrl_pi[-1].bias, 0.0)
+		else:
+			nn.init.constant_(self._ctrl_pi.weight, 0.0) # zero init for ctrl pi
+			nn.init.constant_(self._ctrl_pi.bias, 0.0) # zero init for ctrl pi
 
 		nn.init.xavier_uniform_(self._ctrl_dynamics[-1].weight, gain=0.001)
 		nn.init.constant_(self._ctrl_dynamics[-1].bias[:self.cfg.latent_dim], 0.0) # zero init for preds
 		nn.init.constant_(self._ctrl_dynamics[-1].bias[self.cfg.latent_dim:], np.log(cfg.ctrl_sig_init**2)) # init log(sig) 
+
+		nn.init.xavier_uniform_(self._dynamics[-1].weight, gain=0.001)
+		nn.init.constant_(self._dynamics[-1].bias, 0.0) # zero init for "diff" preds
+		nn.init.constant_(self._dynamics_sig.weight, 0.0) # zero init for sig
+		nn.init.constant_(self._dynamics_sig.bias, np.log(cfg.ctrl_sig_init**2)) # init log(sig) 
+		
+		# print("Dynamics init:", self._dynamics[-1].weight.mean().item(), self._dynamics[-1].weight.std().item())
+
+		# print("Dynamics init:", self._dynamics[-1].bias.mean().item(), self._dynamics[-1].bias.exp().mean().item())
 
 		init.zero_([self._reward[-1].weight, self._Qs.params[-2]])
 		self._target_Qs = deepcopy(self._Qs).requires_grad_(False)
@@ -135,8 +155,22 @@ class WorldModel(nn.Module):
 		"""
 		if self.cfg.multitask:
 			z = self.task_emb(z, task)
-		z = torch.cat([z, a], dim=-1)
-		return self._dynamics(z)
+		z_in = torch.cat([z, a], dim=-1)
+		out = self._dynamics(z_in)
+		if self.cfg.dyn_diff:
+			mu = z + out[:, :self.cfg.latent_dim]
+		else:
+			mu = out[:, :self.cfg.latent_dim]
+
+		if self.cfg.learn_sigma:
+			aux = self._dynamics[:-1](z_in)
+			sig = self._dynamics_sig(aux).exp()
+		else:
+			sig = torch.zeros_like(mu)
+		
+		# print(mu.shape, sig.shape)
+		# print(z.std().item(), mu.std().item(), sig.mean().item())
+		return mu, sig
 	
 	def ctrl_pred(self, z, a, task):
 		"""
@@ -155,6 +189,14 @@ class WorldModel(nn.Module):
 			z = self.task_emb(z, task)
 		z = torch.cat([z, a], dim=-1)
 		return self._reward(z)
+
+	def reset_pi(self):
+		"""
+		Resets the policy network.
+		"""
+		self._pi[-1].apply(init.weight_init)
+		nn.init.constant_(self._pi[-1].bias[:self.cfg.action_dim], 0.0)
+		nn.init.constant_(self._pi[-1].bias[self.cfg.action_dim:], np.log(0.1))
 
 	def pi(self, z, task):
 		"""

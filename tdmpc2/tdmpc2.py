@@ -110,10 +110,16 @@ class TDMPC2:
 			a = self.model.pi(z, task)[int(not eval_mode)][0]
 
 		if ctrl:
-			# get output of last hidden layer of self.model._pi(z, task):
-			last_hidden = self.model._pi[:-1](z)
-			a_ctrl = self.model._ctrl_pi(last_hidden)[0]
-			a_total = a + a_ctrl.detach() # don't backpropagate through ctrl_pi
+			if self.cfg.ctrl_full:
+				a_ctrl = self.model._ctrl_pi(z)[0]
+				a_total = a + a_ctrl.detach()
+
+			else:
+				# get output of last hidden layer of self.model._pi(z, task):
+				last_hidden = self.model._pi[:-1](z)
+				a_ctrl = self.model._ctrl_pi(last_hidden)[0]
+				# a_ctrl = self.model._ctrl_pi(z)[0] # full control
+				a_total = a + a_ctrl.detach() # don't backpropagate through ctrl_pi
 
 			return a_total.cpu(), a.cpu(), a_ctrl.cpu()
 
@@ -125,7 +131,7 @@ class TDMPC2:
 		G, discount = 0, 1
 		for t in range(self.cfg.horizon):
 			reward = math.two_hot_inv(self.model.reward(z, actions[t], task), self.cfg)
-			z = self.model.next(z, actions[t], task)
+			z = self.model.next(z, actions[t], task)[0]
 			G += discount * reward
 			discount *= self.discount[torch.tensor(task)] if self.cfg.multitask else self.discount
 		return G + discount * self.model.Q(z, self.model.pi(z, task)[1], task, return_type='avg')
@@ -150,7 +156,7 @@ class TDMPC2:
 			_z = z.repeat(self.cfg.num_pi_trajs, 1)
 			for t in range(self.cfg.horizon-1):
 				pi_actions[t] = self.model.pi(_z, task)[1]
-				_z = self.model.next(_z, pi_actions[t], task)
+				_z = self.model.next(_z, pi_actions[t], task)[0]
 			pi_actions[-1] = self.model.pi(_z, task)[1]
 
 		# Initialize state and parameters
@@ -213,6 +219,9 @@ class TDMPC2:
 		self.model.track_q_grad(False)
 		_, pis, log_pis, _ = self.model.pi(zs, task)
 		qs = self.model.Q(zs, pis, task, return_type='avg')
+
+		qs -= 1 * self.cfg.control_cost * (pis**2).sum(dim=-1).unsqueeze(-1)
+
 		self.scale.update(qs[0])
 		qs = self.scale(qs)
 
@@ -270,9 +279,15 @@ class TDMPC2:
 		zs[0] = z
 		consistency_loss = 0
 		for t in range(self.cfg.horizon):
-			z = self.model.next(z, action[t], task)
-			consistency_loss += F.mse_loss(z, next_z[t]) * self.cfg.rho**t
+			z, sig = self.model.next(z, action[t], task)
+			if self.cfg.ctrl_mse:
+				consistency_loss += F.mse_loss(z, next_z[t]) * self.cfg.rho**t 
+			else:
+				consistency_loss += torch.nn.GaussianNLLLoss()(z, next_z[t], sig) * self.cfg.rho**t
 			zs[t+1] = z
+			
+		if self.cfg.ctrl_mse and self.cfg.learn_sigma:
+			consistency_loss += torch.nn.GaussianNLLLoss()(z.detach(), next_z[-1].detach(), sig) 
 
 		# Predictions
 		_zs = zs[:-1]
@@ -317,17 +332,18 @@ class TDMPC2:
 			"pi_scale": float(self.scale.value),
 		}
 	
-	def control_predict(self, obs, action, task=None, diff=True):
-		obs = obs.to(self.device, non_blocking=True).unsqueeze(0)
-		action = action.to(self.device, non_blocking=True).unsqueeze(0)
-		zs_obs = self.model.encode(obs, task).detach()
-		zs_pred = self.model.ctrl_pred(zs_obs, action, task)
-		z_mu, z_sig2 = zs_pred[:,:self.cfg.latent_dim], zs_pred[:,self.cfg.latent_dim:].exp()
-		if diff:
-			z_mu = z_mu + zs_obs
-		return z_mu[0].detach().cpu().numpy(), z_sig2[0].detach().cpu().numpy()
+	# def control_predict_old(self, obs, action, task=None, diff=True):
+	# 	obs = obs.to(self.device, non_blocking=True).unsqueeze(0)
+	# 	action = action.to(self.device, non_blocking=True).unsqueeze(0)
+	# 	zs_obs = self.model.encode(obs, task).detach()
+	# 	zs_pred = self.model.ctrl_pred(zs_obs, action, task)
+	# 	z_mu, z_sig2 = zs_pred[:,:self.cfg.latent_dim], zs_pred[:,self.cfg.latent_dim:].exp()
+	# 	if diff:
+	# 		z_mu = z_mu + zs_obs
+	# 	return z_mu[0].detach().cpu().numpy(), z_sig2[0].detach().cpu().numpy()
 	
-	def control_update(self, episode, diff=True):
+	# uses _dynamics as forward model
+	def control_update(self, episode, pred_only=False): #diff=True
 		"""
 		Adpative control update function.
 		Learns control policy, uses _dynamics as forward model.
@@ -338,7 +354,7 @@ class TDMPC2:
 		Returns:
 			dict: Dictionary of training statistics.
 		"""
-		episode = episode.to(self.device, non_blocking=True)
+		episode = episode.float().to(self.device, non_blocking=True)
 
 		obs, action, reward = episode['obs'], episode['action'][1:], episode['reward'][1:]
 		ep_len = len(obs)
@@ -349,9 +365,9 @@ class TDMPC2:
 		# print("Episode length:", ep_len)
 
 		# Prepare for update
-		# self.ctrl_pi_optim.zero_grad(set_to_none=True) # learn only policy here.
+		self.ctrl_pi_optim.zero_grad(set_to_none=True) 
 		self.pi_optim.zero_grad(set_to_none=True) # get these gradient, then transfer to self.model._ctrl_pi
-		self.ctrl_dyn_optim.zero_grad(set_to_none=True)
+		# self.ctrl_dyn_optim.zero_grad(set_to_none=True) # learn only policy here.
 		self.model.train()
 
 		# Compare latent predictions
@@ -360,38 +376,58 @@ class TDMPC2:
 		H = self.cfg.ctrl_horizon
 		Z = self.cfg.latent_dim
 		zs_pred = zs_obs[:-H].detach()
-		a_pred = action #.detach().requires_grad_()
+
+		aux_grad = torch.zeros_like(action, requires_grad=True)
+		if self.cfg.ctrl_full:
+			a_pred = action.detach() + aux_grad#.detach().requires_grad_()
+		else:
+			a_pred = action
+
+		# learn only first step action
+		# zs_pred, sig = self.model.next(zs_pred, a_pred[:a_len-H+1], task)
+		# for i in range(1,H):
+		# 	# print(zs_pred.shape, a_pred[i:a_len-H+i+1].shape, task)
+		# 	zs_pred, sig = self.model.next(zs_pred, a_pred[i:a_len-H+i+1].detach(), task)
 		for i in range(H):
 			# print(zs_pred.shape, a_pred[i:a_len-H+i+1].shape, task)
-			zs_pred = self.model.next(zs_pred[:,:Z], a_pred[i:a_len-H+i+1], task)
-		mu, sig = zs_pred[:,:Z], zs_pred[:,Z:].exp()
+			zs_pred, sig = self.model.next(zs_pred, a_pred[i:a_len-H+i+1], task)
 
-		if diff:
-			target = zs_obs[H:] - zs_obs[:-H]
-		else:
-			target = zs_obs[H:]
+		if pred_only:
+			return zs_pred, sig
+
+		# if diff: # was wrong
+		# target = zs_obs[H:] - zs_obs[:-H]
+		# else:
+		target = zs_obs[H:]
 
 		if self.cfg.ctrl_mse:
-			consistency_loss = F.mse_loss(mu, target) 
+			consistency_loss = F.mse_loss(zs_pred, target) 
 			sig = torch.zeros(1)
 		else: 
 			loss = torch.nn.GaussianNLLLoss()
-			consistency_loss = loss(mu, target, sig)
+			consistency_loss = loss(zs_pred, target, sig)
 		
 		# consistency_loss *= (1/(ep_len - self.cfg.ctrl_horizon - 1))
 
 		# Update model
 		consistency_loss.backward()
-		# grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.grad_clip_norm)
+		grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.grad_clip_norm)
 
 		# Backward to policy weights
 		# action.backward(a_pred.grad, retain_graph=True)
 
-		if (self.model._pi[-1].weight.grad is not None):
+		if (not self.cfg.ctrl_full) and (self.model._pi[-1].weight.grad is not None):
 			# update self.model._ctrl_pi instead:
 			self.model._ctrl_pi.weight.grad = -self.model._pi[-1].weight.grad[:self.cfg.action_dim].clone()
-
-			self.ctrl_pi_optim.step() 
+			# TODO: add bias?
+		elif self.cfg.ctrl_full:
+			# a_ctrl = self.model._ctrl_pi(zs_obs[:-1])
+			a_ctrl = episode['action_ctrl'][1:]
+			a_ctrl.backward(gradient=-aux_grad.grad)
+		else:
+			print("No gradient for action policy")
+			
+		self.ctrl_pi_optim.step() 
 
 		# print("ctrl pi norms:", self.model._ctrl_pi.weight.norm(), self.model._ctrl_pi.bias.norm())
 
@@ -402,75 +438,75 @@ class TDMPC2:
 		return {
 			"ctrl_loss": float(consistency_loss.mean().item()),
 			"ctrl_sig": sig.mean().sqrt().item(),
-			"ctrl_dist": (mu[:self.cfg.dist_range,:2]-target[:self.cfg.dist_range,:2]).norm(dim=1).mean()
+			"ctrl_dist": (zs_pred[:self.cfg.dist_range,:2]-target[:self.cfg.dist_range,:2]).norm(dim=1).mean()
 			# "grad_norm_ctrl": float(grad_norm)
 		}
 	
-
-	def control_update_old(self, episode, diff=True):
-		"""
-		Adpative control update function.
+# builds separate forward model
+	# def control_update_old(self, episode, diff=True):
+	# 	"""
+	# 	Adpative control update function.
 		
-		Args:
-			episode (dict): Episode sample. Formatted as from the replay buffer. 
+	# 	Args:
+	# 		episode (dict): Episode sample. Formatted as from the replay buffer. 
 		
-		Returns:
-			dict: Dictionary of training statistics.
-		"""
-		episode = episode.to(self.device, non_blocking=True)
+	# 	Returns:
+	# 		dict: Dictionary of training statistics.
+	# 	"""
+	# 	episode = episode.to(self.device, non_blocking=True)
 
-		obs, action, reward = episode['obs'], episode['action'][1:], episode['reward'][1:]
-		ep_len = len(obs)
-		task = None
-		# print(obs.shape, action.shape, reward.shape)
+	# 	obs, action, reward = episode['obs'], episode['action'][1:], episode['reward'][1:]
+	# 	ep_len = len(obs)
+	# 	task = None
+	# 	# print(obs.shape, action.shape, reward.shape)
 
-		# print("Episode length:", ep_len)
+	# 	# print("Episode length:", ep_len)
 
-		# Prepare for update
-		self.ctrl_pi_optim.zero_grad(set_to_none=True)
-		self.pi_optim.zero_grad(set_to_none=True) # get these gradient, then transfer to self.model._ctrl_pi
-		self.ctrl_dyn_optim.zero_grad(set_to_none=True)
-		self.model.train()
+	# 	# Prepare for update
+	# 	self.ctrl_pi_optim.zero_grad(set_to_none=True)
+	# 	self.pi_optim.zero_grad(set_to_none=True) # get these gradient, then transfer to self.model._ctrl_pi
+	# 	self.ctrl_dyn_optim.zero_grad(set_to_none=True)
+	# 	self.model.train()
 
-		# Compare latent predictions
-		zs_obs = self.model.encode(obs, task).detach()
-		zs_pred = self.model.ctrl_pred(zs_obs[:-1], action, task)[:-self.cfg.ctrl_horizon+1]
-		mu, sig = zs_pred[:,:self.cfg.latent_dim], zs_pred[:,self.cfg.latent_dim:].exp()
+	# 	# Compare latent predictions
+	# 	zs_obs = self.model.encode(obs, task).detach()
+	# 	zs_pred = self.model.ctrl_pred(zs_obs[:-1], action, task)[:-self.cfg.ctrl_horizon+1]
+	# 	mu, sig = zs_pred[:,:self.cfg.latent_dim], zs_pred[:,self.cfg.latent_dim:].exp()
 
-		if diff:
-			target = zs_obs[self.cfg.ctrl_horizon:] - zs_obs[:-self.cfg.ctrl_horizon]
-		else:
-			target = zs_obs[self.cfg.ctrl_horizon:]
+	# 	if diff: # todo: check this, in ctrl_pred()
+	# 		target = zs_obs[self.cfg.ctrl_horizon:] - zs_obs[:-self.cfg.ctrl_horizon]
+	# 	else:
+	# 		target = zs_obs[self.cfg.ctrl_horizon:]
 
-		if self.cfg.ctrl_mse:
-			consistency_loss = F.mse_loss(mu, target) 
-			sig = torch.zeros(1)
-		else: 
-			loss = torch.nn.GaussianNLLLoss()
-			consistency_loss = loss(mu, target, sig)
+	# 	if self.cfg.ctrl_mse:
+	# 		consistency_loss = F.mse_loss(mu, target) 
+	# 		sig = torch.zeros(1)
+	# 	else: 
+	# 		loss = torch.nn.GaussianNLLLoss()
+	# 		consistency_loss = loss(mu, target, sig)
 		
-		# consistency_loss *= (1/(ep_len - self.cfg.ctrl_horizon - 1))
+	# 	# consistency_loss *= (1/(ep_len - self.cfg.ctrl_horizon - 1))
 
-		# Update model
-		consistency_loss.backward()
-		# grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.grad_clip_norm)
+	# 	# Update model
+	# 	consistency_loss.backward()
+	# 	# grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.grad_clip_norm)
 
-		if (self.model._pi[-1].weight.grad is not None):
-			# update self.model._ctrl_pi instead:
-			self.model._ctrl_pi.weight.grad = -self.model._pi[-1].weight.grad[:self.cfg.action_dim].clone()
+	# 	if (self.model._pi[-1].weight.grad is not None):
+	# 		# update self.model._ctrl_pi instead:
+	# 		self.model._ctrl_pi.weight.grad = -self.model._pi[-1].weight.grad[:self.cfg.action_dim].clone()
 
-			self.ctrl_pi_optim.step() 
+	# 		self.ctrl_pi_optim.step() 
 
-		# print("ctrl pi norms:", self.model._ctrl_pi.weight.norm(), self.model._ctrl_pi.bias.norm())
+	# 	# print("ctrl pi norms:", self.model._ctrl_pi.weight.norm(), self.model._ctrl_pi.bias.norm())
 
-		self.ctrl_dyn_optim.step()
+	# 	self.ctrl_dyn_optim.step()
 
-		# Return training statistics
-		self.model.eval()
-		return {
-			"ctrl_loss": float(consistency_loss.mean().item()),
-			"ctrl_sig": sig.mean().sqrt().item(),
-			"ctrl_dist": (mu[:self.cfg.dist_range,:2]-target[:self.cfg.dist_range,:2]).norm(dim=1).mean()
-			# "grad_norm_ctrl": float(grad_norm)
-		}
+	# 	# Return training statistics
+	# 	self.model.eval()
+	# 	return {
+	# 		"ctrl_loss": float(consistency_loss.mean().item()),
+	# 		"ctrl_sig": sig.mean().sqrt().item(),
+	# 		"ctrl_dist": (mu[:self.cfg.dist_range,:2]-target[:self.cfg.dist_range,:2]).norm(dim=1).mean()
+	# 		# "grad_norm_ctrl": float(grad_norm)
+	# 	}
 	
