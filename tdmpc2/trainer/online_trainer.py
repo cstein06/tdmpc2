@@ -394,6 +394,7 @@ class OnlineTrainer(Trainer):
 						action_norm_L1=torch.tensor([td['action'].abs().mean() for td in self._tds[1:]]).mean(),
 						ctrl_norm=torch.tensor([td['action_ctrl'].abs().mean() for td in self._tds[1:]]).mean(),
 						pi_norm=pi_norm,
+						z_std=zs.std(),
 					)
 					train_metrics.update(self.common_metrics())
 					self.logger.log(train_metrics, 'train')

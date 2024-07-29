@@ -112,8 +112,8 @@ horizon: 5
 control_cost: 0. #0.1
 control_cost_L1: 0. 
 auto_cost: false
-target_action_norm: 0.3
-control_cost_rate: 1e-3
+target_action_norm: 0.5
+control_cost_rate: 1e-5
 
 lr_ctrl_pi: 0. #1e-4
 lr_ctrl_dyn: 5e-4
@@ -129,6 +129,8 @@ train_seed: false
 ctrl_opt: adam
 dyn_diff: false
 ctrl_full: false
+
+two_stage: false
 
 reset_pi: false
 
