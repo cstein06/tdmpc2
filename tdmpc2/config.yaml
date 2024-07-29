@@ -3,10 +3,10 @@ defaults:
 
 # environment
 # task: dog-run
-task: humanoid-stand
+# task: humanoid-stand
 # task: reacher-hard
 # task: pointmass-mine
-# task: walker-walk
+task: walker-walk
 
 device: cuda
 # device: mps
@@ -84,46 +84,55 @@ init_noise: 0.3
 
 ################ pre train ######## 
 
-# perturb: false
-# perturb_steps: -1
-# perturb_scale: null
-# perturb_ang: null
-# action_noise: 0.1
-# action_skip: 0
-# obs_noise: 0.
-# OU_perturb: false
+perturb: false
+perturb_steps: -1
+perturb_scale: null
+perturb_ang: null
+action_noise: 0.1
+action_skip: 0
+obs_noise: 0.
+OU_perturb: false
+action_delay: 0
 
-# force_field: false
-# force_field_scale: 5.
+force_field: false
+force_field_scale: 5.
 
-# action_limit: true
+action_limit: true
 
-# # control
-# control: false 
-# ctrl_mse: true
-# learn_sigma: false
-# ctrl_horizon: 5
+# control
+control: false 
+ctrl_mse: true
+learn_sigma: false
+ctrl_horizon: 5
 
-# horizon: 5
-# control_cost: 0. #0.1
-# control_cost_L1: 0. 
-# lr_ctrl_pi: 0. #1e-4
-# lr_ctrl_dyn: 5e-4
-# pi_lr: 3e-4
-# dyn_lr: 3e-4
-# lr: 3e-4
-# reward_coef: 0.1
-# value_coef: 0.1
-# train_agent: true
-# seed_steps: 2500
-# seed_random: true
-# train_seed: false
-# ctrl_opt: adam
-# dyn_diff: false
+rec_latent: false
+rec_alpha: 0.5
 
-# reset_pi: false
+horizon: 5
+control_cost: 0. #0.1
+control_cost_L1: 0. 
+auto_cost: false
+target_action_norm: 0.3
+control_cost_rate: 1e-3
 
-# episode_length: 200
+lr_ctrl_pi: 0. #1e-4
+lr_ctrl_dyn: 5e-4
+pi_lr: 3e-4
+dyn_lr: 3e-4
+lr: 3e-4
+reward_coef: 0.1
+value_coef: 0.1
+train_agent: true
+seed_steps: 2500
+seed_random: false
+train_seed: false
+ctrl_opt: adam
+dyn_diff: false
+ctrl_full: false
+
+reset_pi: false
+
+episode_length: 200
 
 #################################
 
@@ -165,54 +174,55 @@ init_noise: 0.3
 
 ########### perturbation test ###########
 
-perturb: true
-perturb_steps: 10000
-perturb_scale: 0.5 #0.3 #0.4 #[1., 1.] #0.5  
-perturb_ang: null #0.4 # 1. is 90 degrees
-action_noise: 0. # 0.1
-action_skip: 0 # 20
-obs_noise: 0. # 0.01
+# perturb: true
+# perturb_steps: 10000
+# perturb_scale: 0.5 #0.3 #0.4 #[1., 1.] #0.5  
+# perturb_ang: null #0.4 # 1. is 90 degrees
+# action_noise: 0. # 0.1
+# action_skip: 0 # 20
+# obs_noise: 0. # 0.01
+# action_delay: 0
 
-OU_perturb: false
-OU_theta: 0.01
-OU_sigma: 0.3
+# OU_perturb: false
+# OU_theta: 0.01
+# OU_sigma: 0.3
 
-force_field: false
-# force_field_scale: 5.
+# force_field: false
+# # force_field_scale: 5.
 
-action_limit: true
+# action_limit: true
 
-episode_length: 200
+# episode_length: 200
 
-# control
-seed_steps: 500
-control: true
-# control: false
-ctrl_mse: true #false
-ctrl_horizon: 5
+# # control
+# seed_steps: 500
+# control: true
+# # control: false
+# ctrl_mse: true #false
+# ctrl_horizon: 5
 
-ctrl_full: false
-ctrl_last_layer: false
-reset_pi: false
+# ctrl_full: false
+# ctrl_last_layer: false
+# reset_pi: false
 
-# num_ctrl_iter: 5
-lr_ctrl_pi: 3.e-4
-ctrl_opt: adam
-lr_ctrl_dyn: 0.
-pi_lr: 0.
-lr: 0.
-dyn_lr: 0.
-reward_coef: 0.1
-value_coef: 0.1
-train_agent: false
-train_seed: false
-learn_sigma: false
-horizon: 3
-control_cost: .1 #0.1
-control_cost_L1: 0.
-dyn_diff: ???
-seed_random: false
-# init_noise: 0.
+# # num_ctrl_iter: 5
+# lr_ctrl_pi: 3.e-4
+# ctrl_opt: adam
+# lr_ctrl_dyn: 0.
+# pi_lr: 0.
+# lr: 0.
+# dyn_lr: 0.
+# reward_coef: 0.1
+# value_coef: 0.1
+# train_agent: false
+# train_seed: false
+# learn_sigma: false
+# horizon: 3
+# control_cost: .1 #0.1
+# control_cost_L1: 0.
+# dyn_diff: ???
+# seed_random: false
+# # init_noise: 0.
 
 ########################
 # all together
@@ -288,8 +298,8 @@ checkpoint_filename: 'final.pt'
 
 # checkpoint_local: false
 # checkpoint_local: 'artifacts/walker-run-1.pt'
-checkpoint_local: 'artifacts/humanoid-stand-1.pt'
-# checkpoint_local:  'artifacts/walker-run-default-graceful-water-610-final-v0/final.pt'
+# checkpoint_local: 'artifacts/humanoid-stand-1.pt'
+checkpoint_local:  'artifacts/walker-run-default-graceful-water-610-final-v0/final.pt'
 # checkpoint_local:  'artifacts/walker-walk-default-crisp-haze-569-final-v0/final.pt'
 
 task_dim: 96

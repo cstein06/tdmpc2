@@ -49,8 +49,10 @@ class TDMPC2:
 		self.scale = RunningScale(cfg)
 		self.cfg.iterations += 2*int(cfg.action_dim >= 20) # Heuristic for large action spaces
 		self.discount = torch.tensor(
-			[self._get_discount(ep_len) for ep_len in cfg.episode_lengths], device='cuda'
+			[self._get_discount(ep_len) for ep_len in cfg.episode_lengths], device=self.device
 		) if self.cfg.multitask else self._get_discount(cfg.episode_length)
+
+		self.latent_state = torch.zeros(cfg.latent_dim, device=self.device)
 
 	def _get_discount(self, episode_length):
 		"""
@@ -104,10 +106,17 @@ class TDMPC2:
 		if task is not None:
 			task = torch.tensor([task], device=self.device)
 		z = self.model.encode(obs, task)
+
+		if self.cfg.rec_latent and not t0:
+			z = (1-self.cfg.rec_alpha)*z + (self.cfg.rec_alpha)*self.latent_state.detach()
+
 		if self.cfg.mpc:
 			a = self.plan(z, t0=t0, eval_mode=eval_mode, task=task)
 		else:
 			a = self.model.pi(z, task)[int(not eval_mode)][0]
+
+		if self.cfg.rec_latent:
+			self.latent_state = self.model.next(z, a.unsqueeze(0), task)[0].detach()
 
 		if ctrl:
 			if self.cfg.ctrl_full:

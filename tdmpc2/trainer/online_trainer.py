@@ -37,6 +37,8 @@ class OnlineTrainer(Trainer):
 			obs, done, ep_reward, t = self.env.reset(), False, 0, 0
 			# _tds = [self.to_td(obs)]
 			_tds = []
+
+			self.action_buffer = torch.zeros_like(self.env.rand_act()).repeat(self.cfg.action_delay+1, 1)
 			
 			if (i < 2 and self.cfg.puppet == 'pointmass') or self.cfg.fixed_init_state:
 				state = self.set_init_state()
@@ -240,6 +242,12 @@ class OnlineTrainer(Trainer):
 
 	def perturb(self, action, obs=None):
 		"""Perturb action space."""
+
+		if self.cfg.action_delay:
+			self.action_buffer[:-1] = self.action_buffer[1:].clone()
+			self.action_buffer[-1] = action.clone()
+			action = self.action_buffer[0]
+
 		action_rot = action @ self.perturb_factor 
 		if self.cfg.OU_perturb:
 			action_rot *= (1.+self.OU_perturb)
@@ -339,6 +347,8 @@ class OnlineTrainer(Trainer):
 		if self.cfg.reset_pi:
 			self.agent.model.reset_pi()
 
+		self.action_buffer = torch.zeros_like(self.env.rand_act()).repeat(self.cfg.action_delay+1, 1)
+
 		while self._step <= self.cfg.steps:
 
 			# if self._step % 100 == 0:
@@ -357,6 +367,8 @@ class OnlineTrainer(Trainer):
 					
 					train_metrics.update({"episode_length": ep_len})
 
+					train_metrics.update({"control_cost": self.cfg.control_cost})
+
 					# adaptive control
 					if self.cfg.control:
 						# for _ in range(self.cfg.ctrl_update_steps): # can't repeat online learning
@@ -367,7 +379,7 @@ class OnlineTrainer(Trainer):
 							train_metrics.update({"perturb_factor_0": self.perturb_factor[0]})
 							train_metrics.update({"perturb_factor_1": self.perturb_factor[1]})
 
-					zs = self.agent.model.encode(torch.cat(self._tds)['obs'].to('cuda'), None)
+					zs = self.agent.model.encode(torch.cat(self._tds)['obs'].to(self.cfg.device), None)
 					pis = self.agent.model.pi(zs, None)[0]
 					pi_norm = pis.abs().mean() 
 
@@ -377,7 +389,9 @@ class OnlineTrainer(Trainer):
 						episode_success=info['success'],
 						episose_reward_total=torch.tensor([td['reward'] for td in self._tds[1:]]).sum(),
 						episode_reward_ctrl=torch.tensor([td['reward_ctrl'] for td in self._tds[1:]]).sum(),
-						action_norm=torch.tensor([td['action'].abs().mean() for td in self._tds[1:]]).mean(),
+						action_norm_L2=torch.tensor([td['action'].pow(2).mean().sqrt() \
+								   for td in self._tds[1:]]).mean(),
+						action_norm_L1=torch.tensor([td['action'].abs().mean() for td in self._tds[1:]]).mean(),
 						ctrl_norm=torch.tensor([td['action_ctrl'].abs().mean() for td in self._tds[1:]]).mean(),
 						pi_norm=pi_norm,
 					)
@@ -413,6 +427,8 @@ class OnlineTrainer(Trainer):
 							_train_metrics = self.agent.update(self.buffer)
 						train_metrics.update(_train_metrics)
 
+						self.action_buffer = torch.zeros_like(self.env.rand_act()).repeat(self.cfg.action_delay+1, 1)
+
 				if eval_next:
 					eval_metrics = self.eval()
 					eval_metrics.update(self.common_metrics())
@@ -446,6 +462,7 @@ class OnlineTrainer(Trainer):
 				action_ctrl = torch.zeros_like(action)
 
 
+
 			if self.cfg.perturb:
 				effective_action = self.perturb(action, obs=obs)
 			else:
@@ -453,8 +470,17 @@ class OnlineTrainer(Trainer):
 
 			obs, reward_orig, done, info = self.env.step(effective_action.detach())
 
-			if self.cfg.control_cost:
+			if self.cfg.control_cost or self.cfg.auto_cost:
 				reward_ctrl = - self.cfg.control_cost * (action_orig**2).sum() - self.cfg.control_cost_L1 * action_orig.abs().sum()
+
+				if self.cfg.auto_cost:
+					# update control cost to reach target action_norm cfg.target_action_norm
+					action_norm = action_orig.pow(2).mean().sqrt().item()
+					# print("Action norm:", action_norm)
+					# print("Target action norm:", self.cfg.target_action_norm)
+					self.cfg.control_cost += self.cfg.control_cost_rate * (action_norm - self.cfg.target_action_norm)
+					# clip control cost (min zero, no max)
+					self.cfg.control_cost = max(0, self.cfg.control_cost)
 			else:
 				reward_ctrl = torch.tensor(0.)
 
