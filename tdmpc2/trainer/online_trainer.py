@@ -11,6 +11,24 @@ from common import init
 from trainer.base import Trainer
 
 
+from scipy.io import wavfile
+
+def fftnoise(f):
+    f = np.array(f, dtype='complex')
+    Np = (len(f) - 1) // 2
+    phases = np.random.rand(Np) * 2 * np.pi
+    phases = np.cos(phases) + 1j * np.sin(phases)
+    f[1:Np+1] *= phases
+    f[-1:-1-Np:-1] = np.conj(f[1:Np+1])
+    return np.fft.ifft(f).real
+
+def band_limited_noise(min_freq, max_freq, samples=1024, samplerate=1):
+    freqs = np.abs(np.fft.fftfreq(samples, 1/samplerate))
+    f = np.zeros(samples)
+    idx = np.where(np.logical_and(freqs>=min_freq, freqs<=max_freq))[0]
+    f[idx] = 1
+    return fftnoise(f)
+
 class OnlineTrainer(Trainer):
 	"""Trainer class for single-task online TD-MPC2 training."""
 
@@ -240,7 +258,7 @@ class OnlineTrainer(Trainer):
 		else: 
 			return 1
 
-	def perturb(self, action, obs=None):
+	def perturb(self, action, obs=None, t=None):
 		"""Perturb action space."""
 
 		if self.cfg.action_delay:
@@ -251,6 +269,9 @@ class OnlineTrainer(Trainer):
 		action_rot = action @ self.perturb_factor 
 		if self.cfg.OU_perturb:
 			action_rot *= (1.+self.OU_perturb)
+		if self.cfg.slow_noise:
+			action_rot *= (1.+self.slow_perturb[self._step])
+
 		action_pert = action_rot * (1. + self.cfg.action_noise * torch.randn_like(action)) * self.action_skip()
 
 		if self.cfg.force_field:
@@ -343,6 +364,9 @@ class OnlineTrainer(Trainer):
 
 			if self.cfg.OU_perturb:
 				self.OU_perturb = self.cfg.OU_sigma * torch.randn(self.env.action_space.shape[0])
+
+			if self.cfg.slow_noise:
+				self.slow_perturb = self.cfg.slow_scale * band_limited_noise(1/self.cfg.max_tau, 1/self.cfg.min_tau, self.cfg.steps, 1) * self.cfg.min_tau
 
 		if self.cfg.reset_pi:
 			self.agent.model.reset_pi()
@@ -446,6 +470,9 @@ class OnlineTrainer(Trainer):
 				if self.cfg.perturb and self.cfg.OU_perturb:
 					self.update_OU_perturb()
 					train_metrics.update({"OU_perturb_0": self.OU_perturb[0]})
+
+				if self.cfg.perturb and self.cfg.slow_noise:
+					train_metrics.update({"slow_perturb_0": self.slow_perturb[self._step]})
 
 			# Collect experience
 			if (self._step > self.cfg.seed_steps) or (not self.cfg.seed_random):

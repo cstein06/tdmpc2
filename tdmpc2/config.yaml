@@ -94,6 +94,10 @@ obs_noise: 0.
 OU_perturb: false
 OU_theta: 0.01
 OU_sigma: 0.3
+slow_noise: true
+slow_scale: 0.4
+min_tau: 40000
+max_tau: 1000000
 action_delay: 0
 
 force_field: false
