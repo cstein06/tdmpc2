@@ -443,7 +443,7 @@ class OnlineTrainer(Trainer):
 							reward_ctrl=torch.tensor(float('nan')),
 							action_ctrl=torch.zeros_like(self.env.rand_act()))]
 				
-				if self.cfg.OU_perturb:
+				if self.cfg.perturb and self.cfg.OU_perturb:
 					self.update_OU_perturb()
 					train_metrics.update({"OU_perturb_0": self.OU_perturb[0]})
 

@@ -117,6 +117,7 @@ auto_cost: false
 target_action_norm: 0.5
 control_cost_rate: 1e-5
 
+train_agent: true
 lr_ctrl_pi: 0. #1e-4
 lr_ctrl_dyn: 5e-4
 pi_lr: 3e-4
@@ -124,7 +125,6 @@ dyn_lr: 3e-4
 lr: 3e-4
 reward_coef: 0.1
 value_coef: 0.1
-train_agent: true
 seed_steps: 2500
 seed_random: false
 train_seed: false
