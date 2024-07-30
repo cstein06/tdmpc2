@@ -73,7 +73,7 @@ model_size: 5
 use_simnorm: true
 no_enc: false
 fixed_init_state: false  
-init_noise: 0.3
+init_noise: 0.1
 
 # pointmass
 # model_size: 0
