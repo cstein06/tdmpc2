@@ -342,7 +342,7 @@ class OnlineTrainer(Trainer):
 			self.perturb_factor = torch.eye(self.env.action_space.shape[0])
 
 			if self.cfg.OU_perturb:
-				self.OU_perturb = torch.zeros(self.env.action_space.shape[0])
+				self.OU_perturb = self.cfg.OU_sigma * torch.randn(self.env.action_space.shape[0])
 
 		if self.cfg.reset_pi:
 			self.agent.model.reset_pi()
