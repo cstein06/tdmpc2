@@ -389,12 +389,9 @@ class OnlineTrainer(Trainer):
 						episode_success=info['success'],
 						episose_reward_total=torch.tensor([td['reward'] for td in self._tds[1:]]).sum(),
 						episode_reward_ctrl=torch.tensor([td['reward_ctrl'] for td in self._tds[1:]]).sum(),
-						action_norm_L2=torch.tensor([td['action'].pow(2).mean().sqrt() \
-								   for td in self._tds[1:]]).mean(),
-						action_norm_L1=torch.tensor([td['action'].abs().mean() for td in self._tds[1:]]).mean(),
+						action_norm=torch.tensor([td['action'].abs().mean() for td in self._tds[1:]]).mean(),
 						ctrl_norm=torch.tensor([td['action_ctrl'].abs().mean() for td in self._tds[1:]]).mean(),
 						pi_norm=pi_norm,
-						z_std=zs.std(),
 					)
 					train_metrics.update(self.common_metrics())
 					self.logger.log(train_metrics, 'train')
@@ -476,7 +473,7 @@ class OnlineTrainer(Trainer):
 
 				if self.cfg.auto_cost:
 					# update control cost to reach target action_norm cfg.target_action_norm
-					action_norm = action_orig.pow(2).mean().sqrt().item()
+					action_norm = (action_orig.norm()/np.sqrt(len(action_orig))).item()
 					# print("Action norm:", action_norm)
 					# print("Target action norm:", self.cfg.target_action_norm)
 					self.cfg.control_cost += self.cfg.control_cost_rate * (action_norm - self.cfg.target_action_norm)
