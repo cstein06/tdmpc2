@@ -427,7 +427,7 @@ class OnlineTrainer(Trainer):
 						train_metrics.update({"OU_perturb": self.OU_perturb})
 
 					if self.cfg.perturb and self.cfg.slow_noise:
-						train_metrics.update({"slow_perturb": self.slow_perturb[self._step]})
+						train_metrics.update({"slow_perturb0": self.slow_perturb[self._step,0]}, {"slow_perturb1": self.slow_perturb[self._step,1]})
 
 					train_metrics.update(self.common_metrics())
 					self.logger.log(train_metrics, 'train')
@@ -479,12 +479,6 @@ class OnlineTrainer(Trainer):
 							reward_ctrl=torch.tensor(float('nan')),
 							action_ctrl=torch.zeros_like(self.env.rand_act()))]
 				
-				if self.cfg.perturb and self.cfg.OU_perturb:
-					self.update_OU_perturb()
-					train_metrics.update({"OU_perturb": self.OU_perturb})
-
-				if self.cfg.perturb and self.cfg.slow_noise:
-					train_metrics.update({"slow_perturb": self.slow_perturb[self._step]})
 
 			# Collect experience
 			if (self._step > self.cfg.seed_steps) or (not self.cfg.seed_random):
