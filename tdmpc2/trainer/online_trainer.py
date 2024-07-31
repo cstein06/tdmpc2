@@ -396,7 +396,7 @@ class OnlineTrainer(Trainer):
 					train_metrics.update({"control_cost": self.cfg.control_cost})
 
 					# adaptive control
-					if self.cfg.control:
+					if self.cfg.control and self._step >= self.cfg.control_start:
 						# for _ in range(self.cfg.ctrl_update_steps): # can't repeat online learning
 						_train_metrics = self.agent.control_update(torch.cat(self._tds))
 						train_metrics.update(_train_metrics)
@@ -419,7 +419,16 @@ class OnlineTrainer(Trainer):
 						action_norm=torch.tensor([td['action'].pow(2).mean().sqrt() for td in self._tds[1:]]).mean(),
 						ctrl_norm=torch.tensor([td['action_ctrl'].pow(2).mean().sqrt() for td in self._tds[1:]]).mean(),
 						pi_norm=pi_norm,
+						
 					)
+					
+					if self.cfg.perturb and self.cfg.OU_perturb:
+						self.update_OU_perturb()
+						train_metrics.update({"OU_perturb": self.OU_perturb})
+
+					if self.cfg.perturb and self.cfg.slow_noise:
+						train_metrics.update({"slow_perturb": self.slow_perturb[self._step]})
+
 					train_metrics.update(self.common_metrics())
 					self.logger.log(train_metrics, 'train')
 
@@ -479,7 +488,7 @@ class OnlineTrainer(Trainer):
 
 			# Collect experience
 			if (self._step > self.cfg.seed_steps) or (not self.cfg.seed_random):
-				action, action_orig, action_ctrl = self.agent.act(obs, t0=len(self._tds)==1, ctrl=self.cfg.control)
+				action, action_orig, action_ctrl = self.agent.act(obs, t0=len(self._tds)==1, ctrl=(self.cfg.control and self.self._step >= self.cfg.control_start))
 				# if self._step % 200 == 0:
 					# print("Action:", action)
 					# print("Action orig:", action_orig)

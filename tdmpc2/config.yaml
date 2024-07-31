@@ -88,16 +88,20 @@ perturb: false
 perturb_steps: -1
 perturb_scale: null
 perturb_ang: null
+
 action_noise: 0.1
-action_skip: 0
 obs_noise: 0.
+
 OU_perturb: false
 OU_theta: 0.01
 OU_sigma: 0.3
-slow_noise: true
+
+slow_noise: false
 slow_scale: 0.4
 min_tau: 40000
-max_tau: 1000000
+max_tau: 10000000
+
+action_skip: 0
 action_delay: 0
 
 force_field: false
@@ -107,6 +111,7 @@ action_limit: true
 
 # control
 control: false 
+control_start: 0
 ctrl_mse: true
 learn_sigma: false
 ctrl_horizon: 5
