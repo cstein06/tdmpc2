@@ -427,7 +427,7 @@ class OnlineTrainer(Trainer):
 						train_metrics.update({"OU_perturb": self.OU_perturb})
 
 					if self.cfg.perturb and self.cfg.slow_noise:
-						train_metrics.update({"slow_perturb0": self.slow_perturb[self._step,0]}, {"slow_perturb1": self.slow_perturb[self._step,1]})
+						train_metrics.update({"slow_perturb0": self.slow_perturb[self._step,0], "slow_perturb1": self.slow_perturb[self._step,1]})
 
 					train_metrics.update(self.common_metrics())
 					self.logger.log(train_metrics, 'train')
