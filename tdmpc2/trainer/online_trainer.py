@@ -488,7 +488,7 @@ class OnlineTrainer(Trainer):
 
 			# Collect experience
 			if (self._step > self.cfg.seed_steps) or (not self.cfg.seed_random):
-				action, action_orig, action_ctrl = self.agent.act(obs, t0=len(self._tds)==1, ctrl=(self.cfg.control and self.self._step >= self.cfg.control_start))
+				action, action_orig, action_ctrl = self.agent.act(obs, t0=len(self._tds)==1, ctrl=(self.cfg.control and self._step >= self.cfg.control_start))
 				# if self._step % 200 == 0:
 					# print("Action:", action)
 					# print("Action orig:", action_orig)
