@@ -100,6 +100,7 @@ slow_noise: false
 slow_scale: 0.4
 min_tau: 40000
 max_tau: 10000000
+slow_noise_size: 100000
 
 action_skip: 0
 action_delay: 0

@@ -270,7 +270,7 @@ class OnlineTrainer(Trainer):
 		if self.cfg.OU_perturb:
 			action_rot *= (1.+self.OU_perturb)
 		if self.cfg.slow_noise:
-			action_rot *= (1.+self.slow_perturb[self._step])
+			action_rot *= (1.+self.slow_perturb[self._step%self.cfg.slow_noise_size])
 
 		action_pert = action_rot * (1. + self.cfg.action_noise * torch.randn_like(action)) * self.action_skip()
 
@@ -366,7 +366,7 @@ class OnlineTrainer(Trainer):
 				self.OU_perturb = self.cfg.OU_sigma * torch.randn(self.env.action_space.shape[0])
 
 			if self.cfg.slow_noise:
-				self.slow_perturb = torch.zeros(self.cfg.steps, self.env.action_space.shape[0]) 
+				self.slow_perturb = torch.zeros(self.cfg.slow_noise_size, self.env.action_space.shape[0]) 
 				for i in range(self.env.action_space.shape[0]):
 					self.slow_perturb[:,i] = torch.from_numpy(self.cfg.slow_scale * band_limited_noise(1/self.cfg.max_tau, 1/self.cfg.min_tau, self.cfg.steps, 1) * self.cfg.min_tau)
 				print("Slow perturb std:", self.slow_perturb.std(0).numpy())
@@ -428,8 +428,8 @@ class OnlineTrainer(Trainer):
 						train_metrics.update({"OU_perturb": self.OU_perturb})
 
 					if self.cfg.perturb and self.cfg.slow_noise:
-						train_metrics.update({"slow_perturb0": self.slow_perturb[self._step,0], "slow_perturb1": self.slow_perturb[self._step,1]})
-						print("Slow perturb:", self.slow_perturb[self._step])
+						train_metrics.update({"slow_perturb0": self.slow_perturb[self._step%self.cfg.slow_noise_size,0], "slow_perturb1": self.slow_perturb[self._step%self.cfg.slow_noise_size,1]})
+						print("Slow perturb:", self.slow_perturb[self._step%self.cfg.slow_noise_size])
 					
 
 					train_metrics.update(self.common_metrics())
