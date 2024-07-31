@@ -368,7 +368,7 @@ class OnlineTrainer(Trainer):
 			if self.cfg.slow_noise:
 				self.slow_perturb = torch.zeros(self.cfg.slow_noise_size, self.env.action_space.shape[0]) 
 				for i in range(self.env.action_space.shape[0]):
-					self.slow_perturb[:,i] = torch.from_numpy(self.cfg.slow_scale * band_limited_noise(1/self.cfg.max_tau, 1/self.cfg.min_tau, self.cfg.steps, 1) * self.cfg.min_tau)
+					self.slow_perturb[:,i] = torch.from_numpy(self.cfg.slow_scale * band_limited_noise(1/self.cfg.max_tau, 1/self.cfg.min_tau, self.cfg.slow_noise_size, 1) * self.cfg.min_tau)
 				print("Slow perturb std:", self.slow_perturb.std(0).numpy())
 
 		if self.cfg.reset_pi:
