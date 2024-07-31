@@ -366,7 +366,9 @@ class OnlineTrainer(Trainer):
 				self.OU_perturb = self.cfg.OU_sigma * torch.randn(self.env.action_space.shape[0])
 
 			if self.cfg.slow_noise:
-				self.slow_perturb = self.cfg.slow_scale * band_limited_noise(1/self.cfg.max_tau, 1/self.cfg.min_tau, self.cfg.steps, 1) * self.cfg.min_tau
+				self.slow_perturb = torch.zeros(self.cfg.steps, self.env.action_space.shape[0]) 
+				for i in range(self.env.action_space.shape[0]):
+					self.slow_perturb[:,i] = torch.from_numpy(self.cfg.slow_scale * band_limited_noise(1/self.cfg.max_tau, 1/self.cfg.min_tau, self.cfg.steps, 1) * self.cfg.min_tau)
 
 		if self.cfg.reset_pi:
 			self.agent.model.reset_pi()
@@ -413,8 +415,9 @@ class OnlineTrainer(Trainer):
 						episode_success=info['success'],
 						episose_reward_total=torch.tensor([td['reward'] for td in self._tds[1:]]).sum(),
 						episode_reward_ctrl=torch.tensor([td['reward_ctrl'] for td in self._tds[1:]]).sum(),
-						action_norm=torch.tensor([td['action'].abs().mean() for td in self._tds[1:]]).mean(),
-						ctrl_norm=torch.tensor([td['action_ctrl'].abs().mean() for td in self._tds[1:]]).mean(),
+						# action_norm=torch.tensor([td['action'].abs().mean() for td in self._tds[1:]]).mean(),
+						action_norm=torch.tensor([td['action'].pow(2).mean().sqrt() for td in self._tds[1:]]).mean(),
+						ctrl_norm=torch.tensor([td['action_ctrl'].pow(2).mean().sqrt() for td in self._tds[1:]]).mean(),
 						pi_norm=pi_norm,
 					)
 					train_metrics.update(self.common_metrics())
@@ -469,10 +472,10 @@ class OnlineTrainer(Trainer):
 				
 				if self.cfg.perturb and self.cfg.OU_perturb:
 					self.update_OU_perturb()
-					train_metrics.update({"OU_perturb_0": self.OU_perturb[0]})
+					train_metrics.update({"OU_perturb": self.OU_perturb})
 
 				if self.cfg.perturb and self.cfg.slow_noise:
-					train_metrics.update({"slow_perturb_0": self.slow_perturb[self._step]})
+					train_metrics.update({"slow_perturb": self.slow_perturb[self._step]})
 
 			# Collect experience
 			if (self._step > self.cfg.seed_steps) or (not self.cfg.seed_random):
@@ -500,7 +503,8 @@ class OnlineTrainer(Trainer):
 
 				if self.cfg.auto_cost:
 					# update control cost to reach target action_norm cfg.target_action_norm
-					action_norm = (action_orig.norm()/np.sqrt(len(action_orig))).item()
+					# action_norm = (action_orig.norm()/np.sqrt(len(action_orig))).item()
+					action_norm = (action_orig.pow(2).mean().sqrt()).item()
 					# print("Action norm:", action_norm)
 					# print("Target action norm:", self.cfg.target_action_norm)
 					self.cfg.control_cost += self.cfg.control_cost_rate * (action_norm - self.cfg.target_action_norm)

@@ -134,7 +134,7 @@ seed_random: false
 train_seed: false
 ctrl_opt: adam
 dyn_diff: false
-ctrl_full: false
+ctrl_full: true
 
 two_stage: false
 
@@ -209,7 +209,7 @@ episode_length: 200
 # ctrl_mse: true #false
 # ctrl_horizon: 5
 
-# ctrl_full: false
+# ctrl_full: true
 # ctrl_last_layer: false
 # reset_pi: false
 
