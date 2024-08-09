@@ -113,6 +113,7 @@ action_limit: true
  
 # control
 control: true 
+ctrl_rec_loss: true
 control_start: 15000
 ctrl_mse: true
 learn_sigma: false
