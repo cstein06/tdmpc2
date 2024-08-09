@@ -438,7 +438,7 @@ class TDMPC2:
 		else:
 			# print(obs.shape, action.shape)
 			zs_obs = self.model.encode_delayed(obs[self.cfg.input_delay_buffer:], action.detach(), task).detach()
-			
+
 			action = action[self.cfg.input_delay_buffer:]
 
 		a_len = len(action)
@@ -469,12 +469,13 @@ class TDMPC2:
 
 			target = zs_obs[i+1:ep_len-H+i+1]
 
-			if self.cfg.ctrl_mse:
-				consistency_loss += F.mse_loss(zs_pred, target) * self.cfg.rho**i
-				sig = torch.zeros(1)
-			else: 
-				loss = torch.nn.GaussianNLLLoss()
-				consistency_loss += loss(zs_pred, target, sig) * self.cfg.rho**i
+			if self.cfg.ctrl_rec_loss:
+				if self.cfg.ctrl_mse:
+					consistency_loss += F.mse_loss(zs_pred, target) * self.cfg.rho**i
+					sig = torch.zeros(1)
+				else: 
+					loss = torch.nn.GaussianNLLLoss()
+					consistency_loss += loss(zs_pred, target, sig) * self.cfg.rho**i
 			
 
 		if pred_only:
@@ -484,14 +485,15 @@ class TDMPC2:
 		# target = zs_obs[H:] - zs_obs[:-H]
 		# else:
 
-		# target = zs_obs[H:]
+		if not self.cfg.ctrl_rec_loss:
+			target = zs_obs[H:]
 
-		# if self.cfg.ctrl_mse:
-		# 	consistency_loss = F.mse_loss(zs_pred, target) 
-		# 	sig = torch.zeros(1)
-		# else: 
-		# 	loss = torch.nn.GaussianNLLLoss()
-		# 	consistency_loss = loss(zs_pred, target, sig)
+			if self.cfg.ctrl_mse:
+				consistency_loss = F.mse_loss(zs_pred, target) 
+				sig = torch.zeros(1)
+			else: 
+				loss = torch.nn.GaussianNLLLoss()
+				consistency_loss = loss(zs_pred, target, sig)
 		
 		# consistency_loss *= (1/(ep_len - self.cfg.ctrl_horizon - 1))
 		consistency_loss *= (1/self.cfg.ctrl_horizon)
