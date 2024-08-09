@@ -85,41 +85,50 @@ init_noise: 0.1
 ################ pre train ######## 
 
 perturb: false
+perturb_start: 0
 perturb_steps: -1
 perturb_scale: null
 perturb_ang: null
+
 action_noise: 0.1
-action_skip: 0
 obs_noise: 0.
+
 OU_perturb: false
 OU_theta: 0.01
 OU_sigma: 0.3
-slow_noise: true
-slow_scale: 0.4
-min_tau: 40000
-max_tau: 1000000
+
+slow_noise: false
+slow_scale: 0.3
+slow_tau: 20000.
+slow_noise_size: 200000
+
+action_skip: 0
 action_delay: 0
+input_delay_buffer: 0
 
 force_field: false
 force_field_scale: 5.
 
 action_limit: true
-
+ 
 # control
-control: false 
+control: true 
+control_start: 15000
 ctrl_mse: true
 learn_sigma: false
-ctrl_horizon: 5
+ctrl_horizon: 3
 
 rec_latent: false
 rec_alpha: 0.5
 
-horizon: 5
+horizon: 3
 control_cost: 0. #0.1
+cost_in_reward: false
 control_cost_L1: 0. 
-auto_cost: false
+auto_cost: true
+cost_thres: 0.5
 target_action_norm: 0.5
-control_cost_rate: 1e-5
+control_cost_rate: 1e-4
 
 train_agent: true
 lr_ctrl_pi: 0. #1e-4
@@ -304,10 +313,11 @@ checkpoint_wandb: false
 # checkpoint_wandb: 'sweet-resonance-653'
 checkpoint_filename: 'final.pt'
 
-# checkpoint_local: false
+checkpoint_local: false
 # checkpoint_local: 'artifacts/walker-run-1.pt'
 # checkpoint_local: 'artifacts/humanoid-stand-1.pt'
-checkpoint_local:  'artifacts/walker-run-default-graceful-water-610-final-v0/final.pt'
+# checkpoint_local:  'artifacts/walker-run-default-graceful-water-610-final-v0/final.pt'
+# checkpoint_local:  'artifacts/walker-run-default-solar-shape-1184-final-v0/final.pt'
 # checkpoint_local:  'artifacts/walker-walk-default-crisp-haze-569-final-v0/final.pt'
 
 task_dim: 96

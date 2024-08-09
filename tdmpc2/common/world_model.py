@@ -30,16 +30,25 @@ class WorldModel(nn.Module):
 			hidden_activ = nn.Mish(inplace=True)
 			cfg.latent_dim = cfg.obs_shape['state'][0]
 		else:
-			self._encoder = layers.enc(cfg)
+			if not self.cfg.input_delay_buffer:
+				input_dim = cfg.obs_shape['state'][0]
+			else:
+				input_dim = cfg.obs_shape['state'][0] + cfg.action_dim * self.cfg.input_delay_buffer
+			self._encoder = layers.enc(cfg, input_dim=input_dim)
 			# out_activ = layers.SimNorm(cfg)
 			out_activ = layers.SimNorm(cfg) if cfg.use_simnorm else None
 			hidden_activ = nn.Mish(inplace=True)
-		
+
+
 		self._ctrl_dynamics = layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim, cfg.num_ctrl_layers*[cfg.ctrl_dim], 2*cfg.latent_dim, out_activ=out_activ, hidden_activ=hidden_activ) # output with (mu_z,sig_z)
 
 		self._dynamics = layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim, 2*[cfg.mlp_dim], cfg.latent_dim, out_activ=out_activ)
 
 		self._dynamics_sig = nn.Linear(cfg.mlp_dim, cfg.latent_dim)
+
+		self._dynamics_z_only = layers.mlp(cfg.latent_dim + cfg.task_dim, 2*[cfg.mlp_dim], cfg.latent_dim, out_activ=out_activ)
+		
+		self._dynamics_z_only_sig = nn.Linear(cfg.mlp_dim, cfg.latent_dim)
 
 		self._reward = layers.mlp(cfg.latent_dim + cfg.action_dim + cfg.task_dim, 2*[cfg.mlp_dim], max(cfg.num_bins, 1))
 
@@ -72,6 +81,13 @@ class WorldModel(nn.Module):
 		nn.init.constant_(self._dynamics[-1].bias, 0.0) # zero init for "diff" preds
 		nn.init.constant_(self._dynamics_sig.weight, 0.0) # zero init for sig
 		nn.init.constant_(self._dynamics_sig.bias, np.log(cfg.ctrl_sig_init**2)) # init log(sig) 
+
+		# init for _dynamics_z_only and _dynamics_z_only_sig
+		nn.init.xavier_uniform_(self._dynamics_z_only[-1].weight, gain=0.001)
+		nn.init.constant_(self._dynamics_z_only[-1].bias, 0.0) # zero init for "diff" preds
+		nn.init.constant_(self._dynamics_z_only_sig.weight, 0.0) # zero init for sig
+		nn.init.constant_(self._dynamics_z_only_sig.bias, np.log(cfg.ctrl_sig_init**2)) # init log(sig)
+
 		
 		# print("Dynamics init:", self._dynamics[-1].weight.mean().item(), self._dynamics[-1].weight.std().item())
 
@@ -148,6 +164,31 @@ class WorldModel(nn.Module):
 		if self.cfg.multitask:
 			obs = self.task_emb(obs, task)
 		return self._encoder['state'](obs)
+	
+	def encode_delayed(self, obs, actions, task):
+		'''
+		Actions is size of delay. 
+		Expects for each obs_t, a_{t-delay:t-1}.
+		Missing actions are padded with zeros.
+		'''
+		if self.cfg.multitask:
+			obs = self.task_emb(obs, task)
+		if obs.ndim < actions.ndim:
+			obs = obs.unsqueeze(0)
+		# print(obs.shape, actions.shape)
+
+		# pad actions with zeros
+		len_obs = obs.shape[0]
+		len_actions = actions.shape[0]
+		len_padded = len_obs+self.cfg.input_delay_buffer-1
+		# print(len_obs, len_actions, len_padded)
+		if len_actions < len_padded:
+			actions = torch.cat([actions, torch.zeros(len_padded-len_actions, *actions.shape[1:], device=actions.device)], dim=0)
+
+		for i in range(self.cfg.input_delay_buffer):
+			# print(obs.shape, actions[i:i+len_obs].shape)
+			obs = torch.cat([obs, actions[i:i+len_obs]], dim=-1)
+		return self._encoder['state'](obs)
 
 	def next(self, z, a, task):
 		"""
@@ -178,8 +219,33 @@ class WorldModel(nn.Module):
 		"""
 		if self.cfg.multitask:
 			z = self.task_emb(z, task)
+		# print(z.shape, a.shape)
 		z = torch.cat([z, a], dim=-1)
-		return self._ctrl_dynamics(z)
+		out =  self._ctrl_dynamics(z)
+		mu = out[:, :self.cfg.latent_dim]
+		sig = out[:, self.cfg.latent_dim:].exp()
+		return mu, sig
+	
+	def z_only_pred(self, z, task):
+		"""
+		Predicts future latent state given the current latent state only (no action).
+		"""
+		if self.cfg.multitask:
+			z = self.task_emb(z, task)
+			
+		out = self._dynamics_z_only(z)
+		if self.cfg.dyn_diff:
+			mu = z + out[:, :self.cfg.latent_dim] # diff doesn't work for task
+		else:
+			mu = out[:, :self.cfg.latent_dim]
+
+		if self.cfg.learn_sigma:
+			aux = self._dynamics_z_only[:-1](z)
+			sig = self._dynamics_z_only_sig(aux).exp()
+		else:
+			sig = torch.zeros_like(mu)
+
+		return mu, sig
 
 	def reward(self, z, a, task):
 		"""

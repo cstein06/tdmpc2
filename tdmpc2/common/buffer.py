@@ -64,7 +64,7 @@ class Buffer():
 			prefetch=1,
 			transform=Compose(
 				# RandomCropTensorDict(self.cfg.horizon+1, -1),
-				RandomCropTensorDict(self.cfg.horizon+1, -1, mask_key='valid'),
+				RandomCropTensorDict(self.cfg.horizon+1+self.cfg.input_delay_buffer, -1, mask_key='valid'),
 				DataPrepTransform(),
 			),
 			batch_size=self.cfg.batch_size,

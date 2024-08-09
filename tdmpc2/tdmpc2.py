@@ -28,6 +28,7 @@ class TDMPC2:
 		self.optim = torch.optim.Adam([
 			{'params': self.model._encoder.parameters(), 'lr': self.cfg.lr*self.cfg.enc_lr_scale},
 			{'params': self.model._dynamics.parameters(), 'lr': self.cfg.dyn_lr},
+			{'params': self.model._dynamics_z_only.parameters(), 'lr': self.cfg.dyn_lr},
 			{'params': self.model._reward.parameters()},
 			{'params': self.model._Qs.parameters()},
 			{'params': self.model._task_emb.parameters() if self.cfg.multitask else []}
@@ -89,7 +90,7 @@ class TDMPC2:
 		self.model.load_state_dict(state_dict["model"], strict=False)
 
 	# @torch.no_grad()
-	def act(self, obs, t0=False, eval_mode=False, task=None, ctrl=False):
+	def act(self, obs, t0=False, eval_mode=False, task=None, ctrl=False, actions=None):
 		"""
 		Select an action by planning in the latent space of the world model.
 		
@@ -105,7 +106,12 @@ class TDMPC2:
 		obs = obs.to(self.device, non_blocking=True).unsqueeze(0)
 		if task is not None:
 			task = torch.tensor([task], device=self.device)
-		z = self.model.encode(obs, task)
+
+		if not self.cfg.input_delay_buffer:
+			z = self.model.encode(obs, task)
+		else:
+			# print(obs.shape, actions.shape)
+			z = self.model.encode_delayed(obs, actions, task)
 
 		if self.cfg.rec_latent and not t0:
 			z = (1-self.cfg.rec_alpha)*z + (self.cfg.rec_alpha)*self.latent_state.detach()
@@ -229,8 +235,16 @@ class TDMPC2:
 		_, pis, log_pis, _ = self.model.pi(zs, task)
 		qs = self.model.Q(zs, pis, task, return_type='avg')
 
-		qs -= 1 * self.cfg.control_cost * (pis**2).sum(dim=-1).unsqueeze(-1)
+		# transfered cost to reward in training
+		if not self.cfg.cost_in_reward:
 
+			if self.cfg.cost_thres:
+				thres_action = (pis.abs() - self.cfg.cost_thres).clamp(min=0) * (1/(1 - self.cfg.cost_thres))
+			else:
+				thres_action = pis
+		
+			qs -= 1 * self.cfg.control_cost * (thres_action**2).sum(dim=-1).unsqueeze(-1)
+		
 		self.scale.update(qs[0])
 		qs = self.scale(qs)
 
@@ -273,10 +287,22 @@ class TDMPC2:
 		"""
 		obs, action, reward, task = buffer.sample()
 
+		# print(obs.shape, action.shape, reward.shape)
+
 		# Compute targets
 		with torch.no_grad():
-			next_z = self.model.encode(obs[1:], task)
-			td_targets = self._td_target(next_z, reward, task)
+			if not self.cfg.input_delay_buffer:
+				next_z = self.model.encode(obs[1:], task)	
+				td_targets = self._td_target(next_z, reward, task)
+			else:
+				# print(obs.shape, action.shape)
+				# print('update with delay buffer')
+				next_z = self.model.encode_delayed(obs[1+self.cfg.input_delay_buffer:], action[1:], task)
+				action_start = action[:self.cfg.input_delay_buffer]
+				action = action[self.cfg.input_delay_buffer:]
+				obs = obs[self.cfg.input_delay_buffer:]
+				reward = reward[self.cfg.input_delay_buffer:]
+				td_targets = self._td_target(next_z, reward, task)
 
 		# Prepare for update
 		self.optim.zero_grad(set_to_none=True)
@@ -284,7 +310,10 @@ class TDMPC2:
 
 		# Latent rollout
 		zs = torch.empty(self.cfg.horizon+1, self.cfg.batch_size, self.cfg.latent_dim, device=self.device)
-		z = self.model.encode(obs[0], task)
+		if not self.cfg.input_delay_buffer:
+			z = self.model.encode(obs[0], task)
+		else:
+			z = self.model.encode_delayed(obs[0], action_start, task)[0]
 		zs[0] = z
 		consistency_loss = 0
 		for t in range(self.cfg.horizon):
@@ -323,6 +352,29 @@ class TDMPC2:
 		grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.grad_clip_norm)
 		self.optim.step()
 
+		##################
+		# Update _dynamics_z_only
+		if self.cfg.two_stage:
+			self.optim.zero_grad(set_to_none=True)
+			z = self.model.encode(obs[0], task).detach()
+			consistency_loss_z = 0
+			for t in range(self.cfg.horizon):
+				z, sig = self.model.z_only_pred(z, task)
+				if self.cfg.ctrl_mse:
+					consistency_loss_z += F.mse_loss(z, next_z[t].detach()) * self.cfg.rho**t 
+				else:
+					consistency_loss_z += torch.nn.GaussianNLLLoss()(z, next_z[t].detach(), sig) * self.cfg.rho**t
+
+			if self.cfg.ctrl_mse and self.cfg.learn_sigma:
+				consistency_loss_z += torch.nn.GaussianNLLLoss()(z.detach(), next_z[-1].detach(), sig) 
+
+			consistency_loss_z *= (1/self.cfg.horizon)
+			consistency_loss_z.backward()
+			self.optim.step()
+		else:
+			consistency_loss_z = torch.zeros(1)
+		##################
+
 		# Update policy
 		pi_loss = self.update_pi(zs.detach(), task)
 
@@ -339,6 +391,7 @@ class TDMPC2:
 			"total_loss": float(total_loss.mean().item()),
 			"grad_norm": float(grad_norm),
 			"pi_scale": float(self.scale.value),
+			"consistency_loss_z": float(consistency_loss_z.mean().item())
 		}
 	
 	# def control_predict_old(self, obs, action, task=None, diff=True):
@@ -366,8 +419,6 @@ class TDMPC2:
 		episode = episode.float().to(self.device, non_blocking=True)
 
 		obs, action, reward = episode['obs'], episode['action'][1:], episode['reward'][1:]
-		ep_len = len(obs)
-		a_len = len(action)
 		task = None
 		# print(obs.shape, action.shape, reward.shape)
 
@@ -380,8 +431,16 @@ class TDMPC2:
 		self.model.train()
 
 		# Compare latent predictions
-		zs_obs = self.model.encode(obs, task).detach()
-		
+		if not self.cfg.input_delay_buffer:
+			zs_obs = self.model.encode(obs, task).detach()
+		else:
+			# print(obs.shape, action.shape)
+			zs_obs = self.model.encode_delayed(obs[:-self.cfg.input_delay_buffer], action, task).detach()
+			action = action[self.cfg.input_delay_buffer:]
+			
+		a_len = len(action)
+		ep_len = len(zs_obs)
+
 		H = self.cfg.ctrl_horizon
 		Z = self.cfg.latent_dim
 		zs_pred = zs_obs[:-H].detach()
@@ -392,14 +451,28 @@ class TDMPC2:
 		else:
 			a_pred = action
 
+
 		# learn only first step action
 		# zs_pred, sig = self.model.next(zs_pred, a_pred[:a_len-H+1], task)
 		# for i in range(1,H):
 		# 	# print(zs_pred.shape, a_pred[i:a_len-H+i+1].shape, task)
 		# 	zs_pred, sig = self.model.next(zs_pred, a_pred[i:a_len-H+i+1].detach(), task)
+		
+		consistency_loss = 0
 		for i in range(H):
 			# print(zs_pred.shape, a_pred[i:a_len-H+i+1].shape, task)
 			zs_pred, sig = self.model.next(zs_pred, a_pred[i:a_len-H+i+1], task)
+			# zs_pred, sig = self.model.ctrl_pred(zs_pred, a_pred[i:a_len-H+i+1], task) # trying again separate FM
+
+			target = zs_obs[i+1:ep_len-H+i+1]
+
+			if self.cfg.ctrl_mse:
+				consistency_loss += F.mse_loss(zs_pred, target) * self.cfg.rho**i
+				sig = torch.zeros(1)
+			else: 
+				loss = torch.nn.GaussianNLLLoss()
+				consistency_loss += loss(zs_pred, target, sig) * self.cfg.rho**i
+			
 
 		if pred_only:
 			return zs_pred, sig
@@ -407,16 +480,18 @@ class TDMPC2:
 		# if diff: # was wrong
 		# target = zs_obs[H:] - zs_obs[:-H]
 		# else:
-		target = zs_obs[H:]
 
-		if self.cfg.ctrl_mse:
-			consistency_loss = F.mse_loss(zs_pred, target) 
-			sig = torch.zeros(1)
-		else: 
-			loss = torch.nn.GaussianNLLLoss()
-			consistency_loss = loss(zs_pred, target, sig)
+		# target = zs_obs[H:]
+
+		# if self.cfg.ctrl_mse:
+		# 	consistency_loss = F.mse_loss(zs_pred, target) 
+		# 	sig = torch.zeros(1)
+		# else: 
+		# 	loss = torch.nn.GaussianNLLLoss()
+		# 	consistency_loss = loss(zs_pred, target, sig)
 		
 		# consistency_loss *= (1/(ep_len - self.cfg.ctrl_horizon - 1))
+		consistency_loss *= (1/self.cfg.ctrl_horizon)
 
 		# Update model
 		consistency_loss.backward()
@@ -426,9 +501,17 @@ class TDMPC2:
 		# action.backward(a_pred.grad, retain_graph=True)
 
 		if (not self.cfg.ctrl_full) and (self.model._pi[-1].weight.grad is not None):
+
+			# if self.cfg.action_weighting:
+			# 	print(self.model._ctrl_pi.weight.grad.shape)
+			# 	self.model._ctrl_pi.weight.grad =  multiply grad by action vector abs value
+
+			# else:
+				
 			# update self.model._ctrl_pi instead:
 			self.model._ctrl_pi.weight.grad = -self.model._pi[-1].weight.grad[:self.cfg.action_dim].clone()
 			# TODO: add bias?
+
 		elif self.cfg.ctrl_full:
 			# a_ctrl = self.model._ctrl_pi(zs_obs[:-1])
 			a_ctrl = episode['action_ctrl'][1:]
@@ -440,7 +523,7 @@ class TDMPC2:
 
 		# print("ctrl pi norms:", self.model._ctrl_pi.weight.norm(), self.model._ctrl_pi.bias.norm())
 
-		# self.ctrl_dyn_optim.step()
+		self.ctrl_dyn_optim.step()
 
 		# Return training statistics
 		self.model.eval()

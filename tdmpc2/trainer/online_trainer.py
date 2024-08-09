@@ -3,6 +3,7 @@ import stat
 from time import time
 
 import numpy as np
+from pandas import cut
 import torch
 from tensordict.tensordict import TensorDict
 from tqdm import tqdm
@@ -10,24 +11,26 @@ from tqdm import tqdm
 from common import init
 from trainer.base import Trainer
 
+from scipy.signal import butter, lfilter, freqz, resample
 
-from scipy.io import wavfile
+def butter_lowpass(cutoff, fs=1, order=5):
+    return butter(order, cutoff, fs=fs, btype='low', analog=False)
 
-def fftnoise(f):
-    f = np.array(f, dtype='complex')
-    Np = (len(f) - 1) // 2
-    phases = np.random.rand(Np) * 2 * np.pi
-    phases = np.cos(phases) + 1j * np.sin(phases)
-    f[1:Np+1] *= phases
-    f[-1:-1-Np:-1] = np.conj(f[1:Np+1])
-    return np.fft.ifft(f).real
+def butter_lowpass_filter(data, cutoff, fs=1, order=5):
+    b, a = butter_lowpass(cutoff, fs, order=order)
+    y = lfilter(b, a, data)
+    return y
 
-def band_limited_noise(min_freq, max_freq, samples=1024, samplerate=1):
-    freqs = np.abs(np.fft.fftfreq(samples, 1/samplerate))
-    f = np.zeros(samples)
-    idx = np.where(np.logical_and(freqs>=min_freq, freqs<=max_freq))[0]
-    f[idx] = 1
-    return fftnoise(f)
+def lowpass_noise(tau, size, dt=1.):
+	tau_ref = 1000
+	ratio = tau / 1000
+
+	cutoff_ref = 1./tau_ref
+	fs = 1./dt
+	size_ref = int(size / ratio)
+	y_ref = butter_lowpass_filter(np.random.randn(size_ref), cutoff_ref, fs=fs) * np.sqrt(0.5 * fs/cutoff_ref)
+	# y = np.interp(np.linspace(0, size, size_ref), np.arange(size), y_ref)
+	return resample(y_ref, size)
 
 class OnlineTrainer(Trainer):
 	"""Trainer class for single-task online TD-MPC2 training."""
@@ -56,28 +59,36 @@ class OnlineTrainer(Trainer):
 			# _tds = [self.to_td(obs)]
 			_tds = []
 
-			self.action_buffer = torch.zeros_like(self.env.rand_act()).repeat(self.cfg.action_delay+1, 1)
+			self.action_buffer = torch.zeros_like(self.env.rand_act()).repeat(self.action_buffer_size, 1).to(self.cfg.device)
 			
 			if (i < 2 and self.cfg.puppet == 'pointmass') or self.cfg.fixed_init_state:
 				state = self.set_init_state()
 				obs = torch.tensor(self.cfg.init_states[self.cfg.puppet]["obs"])
 
 			while not done:
+				
+				obs_input = obs
+
 				if self.cfg.perturb:
-					obs_pert = self.perturb_obs(obs)
+					obs_pert = self.perturb_obs(obs_input)
 				else:
-					obs_pert = obs
+					obs_pert = obs_input
 
-
-				action, action_orig, action_ctrl = self.agent.act(obs_pert, t0=t==0, eval_mode=True, ctrl=self.cfg.control)
+				action, action_orig, action_ctrl = self.agent.act(obs_pert, t0=t==0, eval_mode=True, ctrl=self.cfg.control, actions=self.action_buffer[-self.cfg.input_delay_buffer:])
+													   
 				action = action.detach()
 				action_orig = action_orig.detach()
 				action_ctrl = action_ctrl.detach()
 
-				if self.cfg.perturb:
-					action_eff = self.perturb(action, obs=obs)
+				if self.cfg.action_delay:
+					action_eff = self.action_buffer[-self.cfg.action_delay].detach().cpu()
 				else:
 					action_eff = action
+
+				if self.cfg.perturb:
+					action_eff = self.perturb(action_eff, obs=obs)
+				else:
+					action_eff = action_eff
 					
 				new_obs, reward, done, info = self.env.step(action_eff)
 
@@ -87,9 +98,14 @@ class OnlineTrainer(Trainer):
 								action_eff=action_eff, action_ctrl=action_ctrl,
 								action_total=action, state=state))
 				obs = new_obs
+				
+				if self.cfg.action_delay or self.cfg.input_delay_buffer:
+					self.action_buffer[:-1] = self.action_buffer[1:].clone()
+					self.action_buffer[-1] = action.clone()
 
 				ep_reward += reward
 				t += 1
+
 			ep_rewards.append(ep_reward)
 			ep_successes.append(info['success'])
 			ep_lens.append(t)
@@ -261,16 +277,11 @@ class OnlineTrainer(Trainer):
 	def perturb(self, action, obs=None, t=None):
 		"""Perturb action space."""
 
-		if self.cfg.action_delay:
-			self.action_buffer[:-1] = self.action_buffer[1:].clone()
-			self.action_buffer[-1] = action.clone()
-			action = self.action_buffer[0]
-
 		action_rot = action @ self.perturb_factor 
 		if self.cfg.OU_perturb:
 			action_rot *= (1.+self.OU_perturb)
 		if self.cfg.slow_noise:
-			action_rot *= (1.+self.slow_perturb[self._step])
+			action_rot *= (1.+self.slow_perturb[self._step%self.cfg.slow_noise_size])
 
 		action_pert = action_rot * (1. + self.cfg.action_noise * torch.randn_like(action)) * self.action_skip()
 
@@ -366,14 +377,16 @@ class OnlineTrainer(Trainer):
 				self.OU_perturb = self.cfg.OU_sigma * torch.randn(self.env.action_space.shape[0])
 
 			if self.cfg.slow_noise:
-				self.slow_perturb = torch.zeros(self.cfg.steps, self.env.action_space.shape[0]) 
+				self.slow_perturb = torch.zeros(self.cfg.slow_noise_size, self.env.action_space.shape[0]) 
 				for i in range(self.env.action_space.shape[0]):
-					self.slow_perturb[:,i] = torch.from_numpy(self.cfg.slow_scale * band_limited_noise(1/self.cfg.max_tau, 1/self.cfg.min_tau, self.cfg.steps, 1) * self.cfg.min_tau)
+					self.slow_perturb[:,i] = torch.from_numpy(self.cfg.slow_scale * lowpass_noise(self.cfg.slow_tau, self.cfg.slow_noise_size))
+				print("Slow perturb std:", self.slow_perturb.std(0).numpy())
 
 		if self.cfg.reset_pi:
 			self.agent.model.reset_pi()
 
-		self.action_buffer = torch.zeros_like(self.env.rand_act()).repeat(self.cfg.action_delay+1, 1)
+		self.action_buffer_size = max(self.cfg.action_delay,self.cfg.input_delay_buffer)+1
+		self.action_buffer = torch.zeros_like(self.env.rand_act()).repeat(self.action_buffer_size, 1).to(self.cfg.device)
 
 		while self._step <= self.cfg.steps:
 
@@ -396,7 +409,7 @@ class OnlineTrainer(Trainer):
 					train_metrics.update({"control_cost": self.cfg.control_cost})
 
 					# adaptive control
-					if self.cfg.control:
+					if self.cfg.control and self._step >= (self.cfg.control_start + self.cfg.episode_length):
 						# for _ in range(self.cfg.ctrl_update_steps): # can't repeat online learning
 						_train_metrics = self.agent.control_update(torch.cat(self._tds))
 						train_metrics.update(_train_metrics)
@@ -405,9 +418,12 @@ class OnlineTrainer(Trainer):
 							train_metrics.update({"perturb_factor_0": self.perturb_factor[0]})
 							train_metrics.update({"perturb_factor_1": self.perturb_factor[1]})
 
-					zs = self.agent.model.encode(torch.cat(self._tds)['obs'].to(self.cfg.device), None)
-					pis = self.agent.model.pi(zs, None)[0]
-					pi_norm = pis.abs().mean() 
+					if not self.cfg.input_delay_buffer:
+						zs = self.agent.model.encode(torch.cat(self._tds)['obs'].to(self.cfg.device), None)
+						pis = self.agent.model.pi(zs, None)[0]
+						pi_norm = pis.abs().mean() 
+					else:
+						pi_norm = torch.tensor(float('nan'))
 
 					# Log episode
 					train_metrics.update(
@@ -419,7 +435,18 @@ class OnlineTrainer(Trainer):
 						action_norm=torch.tensor([td['action'].pow(2).mean().sqrt() for td in self._tds[1:]]).mean(),
 						ctrl_norm=torch.tensor([td['action_ctrl'].pow(2).mean().sqrt() for td in self._tds[1:]]).mean(),
 						pi_norm=pi_norm,
+						
 					)
+					
+					if self.cfg.perturb and self.cfg.OU_perturb:
+						self.update_OU_perturb()
+						train_metrics.update({"OU_perturb0": self.OU_perturb[0], "OU_perturb1": self.OU_perturb[1]})
+
+					if self.cfg.perturb and self.cfg.slow_noise:
+						train_metrics.update({"slow_perturb0": self.slow_perturb[self._step%self.cfg.slow_noise_size,0], "slow_perturb1": self.slow_perturb[self._step%self.cfg.slow_noise_size,1]})
+						# print("Slow perturb:", self.slow_perturb[self._step%self.cfg.slow_noise_size])
+					
+
 					train_metrics.update(self.common_metrics())
 					self.logger.log(train_metrics, 'train')
 
@@ -441,6 +468,7 @@ class OnlineTrainer(Trainer):
 
 					# Update agent
 					if (self._step >= self.cfg.seed_steps) and self.cfg.train_agent:
+						rnd_state = torch.get_rng_state()
 						if (self._step < self.cfg.seed_steps + self.cfg.episode_length) and self.cfg.train_seed:
 							num_updates = int(self.cfg.updates_per_step * self.cfg.seed_steps)
 							print('Pretraining agent on seed data...')
@@ -452,7 +480,7 @@ class OnlineTrainer(Trainer):
 							_train_metrics = self.agent.update(self.buffer)
 						train_metrics.update(_train_metrics)
 
-						self.action_buffer = torch.zeros_like(self.env.rand_act()).repeat(self.cfg.action_delay+1, 1)
+						torch.set_rng_state(rnd_state)
 
 				if eval_next:
 					eval_metrics = self.eval()
@@ -462,24 +490,27 @@ class OnlineTrainer(Trainer):
 
 				obs = self.env.reset()
 
+				self.action_buffer = torch.zeros_like(self.env.rand_act()).repeat(self.action_buffer_size, 1).to(self.cfg.device)
+
 				if self.cfg.fixed_init_state:
 					state = self.set_init_state()
 					obs = torch.tensor(self.cfg.init_states[self.cfg.puppet]["obs"])
 
 				self._tds = [self.to_td(obs, reward_task=torch.tensor(float('nan')),
 							reward_ctrl=torch.tensor(float('nan')),
-							action_ctrl=torch.zeros_like(self.env.rand_act()))]
+							action_ctrl=torch.zeros_like(self.env.rand_act()),
+							action_total=torch.zeros_like(self.env.rand_act()),
+							action_orig=torch.zeros_like(self.env.rand_act()))]
 				
-				if self.cfg.perturb and self.cfg.OU_perturb:
-					self.update_OU_perturb()
-					train_metrics.update({"OU_perturb": self.OU_perturb})
-
-				if self.cfg.perturb and self.cfg.slow_noise:
-					train_metrics.update({"slow_perturb": self.slow_perturb[self._step]})
 
 			# Collect experience
 			if (self._step > self.cfg.seed_steps) or (not self.cfg.seed_random):
-				action, action_orig, action_ctrl = self.agent.act(obs, t0=len(self._tds)==1, ctrl=self.cfg.control)
+				obs_input = obs
+					
+				action, action_orig, action_ctrl = self.agent.act(obs_input,
+					t0=len(self._tds)==1, ctrl=(self.cfg.control and self._step >= self.cfg.control_start), actions=self.action_buffer[-self.cfg.input_delay_buffer:])
+													   	
+					
 				# if self._step % 200 == 0:
 					# print("Action:", action)
 					# print("Action orig:", action_orig)
@@ -489,40 +520,60 @@ class OnlineTrainer(Trainer):
 				action_orig = action
 				action_ctrl = torch.zeros_like(action)
 
-
-
-			if self.cfg.perturb:
-				effective_action = self.perturb(action, obs=obs)
+			
+			if self.cfg.action_delay:
+				effective_action = self.action_buffer[-self.cfg.action_delay]
 			else:
 				effective_action = action
 
-			obs, reward_orig, done, info = self.env.step(effective_action.detach())
+			if self.cfg.perturb and self._step > self.cfg.perturb_start:
+				effective_action = self.perturb(effective_action.cpu(), obs=obs)
+			else:
+				effective_action = effective_action
+
+			obs, reward_orig, done, info = self.env.step(effective_action.detach().cpu())
 
 			if self.cfg.control_cost or self.cfg.auto_cost:
-				reward_ctrl = - self.cfg.control_cost * (action_orig**2).sum() - self.cfg.control_cost_L1 * action_orig.abs().sum()
+				if self.cfg.cost_thres:
+					thres_action = (action.abs() - self.cfg.cost_thres).clamp(min=0) * (1/(1 - self.cfg.cost_thres))
+				else:
+					thres_action = action
+				reward_ctrl = - self.cfg.control_cost * (thres_action**2).sum() - self.cfg.control_cost_L1 * action.abs().sum()
 
 				if self.cfg.auto_cost:
 					# update control cost to reach target action_norm cfg.target_action_norm
 					# action_norm = (action_orig.norm()/np.sqrt(len(action_orig))).item()
-					action_norm = (action_orig.pow(2).mean().sqrt()).item()
+					action_norm = (thres_action.pow(2).mean().sqrt()).item()
 					# print("Action norm:", action_norm)
 					# print("Target action norm:", self.cfg.target_action_norm)
 					self.cfg.control_cost += self.cfg.control_cost_rate * (action_norm - self.cfg.target_action_norm)
 					# clip control cost (min zero, no max)
 					self.cfg.control_cost = max(0, self.cfg.control_cost)
+
+				if not self.cfg.cost_in_reward:
+					reward_ctrl = torch.tensor(0.)
+
+
 			else:
 				reward_ctrl = torch.tensor(0.)
 
 			reward_total = reward_orig + reward_ctrl
 
-			if self.cfg.perturb:
+			if self.cfg.perturb and self._step > self.cfg.perturb_start:
 				obs = self.perturb_obs(obs)
 
-			self._tds.append(self.to_td(obs, action_orig, reward_total, reward_task=reward_orig, reward_ctrl=reward_ctrl,
-							   action_ctrl=action_ctrl)) # which action to use?
+			self._tds.append(self.to_td(obs, action, reward_total, reward_task=reward_orig, reward_ctrl=reward_ctrl,
+							   action_ctrl=action_ctrl,
+							   action_total=action,
+							   action_orig=action_orig)) # which action to use?
 
 			if self.cfg.perturb and (self._step >= self.cfg.seed_steps) and (self._step % self.cfg.perturb_steps == 0) and (self.cfg.perturb_steps > 0):
 				self.update_perturb()
+			
+			if self.cfg.action_delay or self.cfg.input_delay_buffer:
+				self.action_buffer[:-1] = self.action_buffer[1:].clone()
+				self.action_buffer[-1] = action.clone()
+
 
 			self._step += 1
 	

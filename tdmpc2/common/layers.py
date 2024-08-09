@@ -85,13 +85,15 @@ class NormedLinear(nn.Linear):
 			f"act={self.act.__class__.__name__})"
 
 
-def enc(cfg, out={}):
+def enc(cfg, out={}, input_dim = None):
 	"""
 	Returns a dictionary of encoders for each observation in the dict.
 	"""
 	for k in cfg.obs_shape.keys():
 		assert k == 'state'
-		out[k] = mlp(cfg.obs_shape[k][0] + cfg.task_dim, max(cfg.num_enc_layers-1, 1)*[cfg.enc_dim], cfg.latent_dim, out_activ=SimNorm(cfg) if cfg.use_simnorm else None)
+		if input_dim is None:
+			input_dim = cfg.obs_shape[k][0]
+		out[k] = mlp(input_dim + cfg.task_dim, max(cfg.num_enc_layers-1, 1)*[cfg.enc_dim], cfg.latent_dim, out_activ=SimNorm(cfg) if cfg.use_simnorm else None)
 	return nn.ModuleDict(out)
 
 
