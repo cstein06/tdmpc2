@@ -126,13 +126,13 @@ class TDMPC2:
 
 		if ctrl:
 			if self.cfg.ctrl_full:
-				a_ctrl = self.model._ctrl_pi(z)[0]
+				a_ctrl = self.model._ctrl_pi(z.detach())[0]
 				a_total = a + a_ctrl.detach()
 
 			else:
 				# get output of last hidden layer of self.model._pi(z, task):
 				last_hidden = self.model._pi[:-1](z)
-				a_ctrl = self.model._ctrl_pi(last_hidden)[0]
+				a_ctrl = self.model._ctrl_pi(last_hidden.detach())[0]
 				# a_ctrl = self.model._ctrl_pi(z)[0] # full control
 				a_total = a + a_ctrl.detach() # don't backpropagate through ctrl_pi
 
@@ -514,7 +514,7 @@ class TDMPC2:
 
 		elif self.cfg.ctrl_full:
 			# a_ctrl = self.model._ctrl_pi(zs_obs[:-1])
-			a_ctrl = episode['action_ctrl'][1:]
+			a_ctrl = episode['action_ctrl'][1+self.cfg.input_delay_buffer:]
 			a_ctrl.backward(gradient=-aux_grad.grad)
 		else:
 			print("No gradient for action policy")
