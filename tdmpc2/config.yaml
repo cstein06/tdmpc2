@@ -117,6 +117,7 @@ control_start: 15000
 ctrl_mse: true
 learn_sigma: false
 ctrl_horizon: 3
+action_total_FM: false
 
 rec_latent: false
 rec_alpha: 0.5

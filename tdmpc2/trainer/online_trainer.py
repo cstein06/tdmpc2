@@ -562,7 +562,12 @@ class OnlineTrainer(Trainer):
 			if self.cfg.perturb and self._step > self.cfg.perturb_start:
 				obs = self.perturb_obs(obs)
 
-			self._tds.append(self.to_td(obs, action, reward_total, reward_task=reward_orig, reward_ctrl=reward_ctrl,
+			if self.cfg.action_total_FM:
+				action_FM = action
+			else:
+				action_FM = action_orig
+
+			self._tds.append(self.to_td(obs, action_FM, reward_total, reward_task=reward_orig, reward_ctrl=reward_ctrl,
 							   action_ctrl=action_ctrl,
 							   action_total=action,
 							   action_orig=action_orig)) # which action to use?
