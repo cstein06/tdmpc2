@@ -111,7 +111,7 @@ class TDMPC2:
 			z = self.model.encode(obs, task)
 		else:
 			# print(obs.shape, actions.shape)
-			z = self.model.encode_delayed(obs, actions, task)
+			z = self.model.encode_delayed(obs, actions.detach(), task)
 
 		if self.cfg.rec_latent and not t0:
 			z = (1-self.cfg.rec_alpha)*z + (self.cfg.rec_alpha)*self.latent_state.detach()
@@ -287,6 +287,8 @@ class TDMPC2:
 		"""
 		obs, action, reward, task = buffer.sample()
 
+		action = action.detach() # don't backprop through action here.
+
 		# print(obs.shape, action.shape, reward.shape)
 
 		# Compute targets
@@ -297,7 +299,7 @@ class TDMPC2:
 			else:
 				# print(obs.shape, action.shape)
 				# print('update with delay buffer')
-				next_z = self.model.encode_delayed(obs[1+self.cfg.input_delay_buffer:], action[1:], task)
+				next_z = self.model.encode_delayed(obs[1+self.cfg.input_delay_buffer:], action[1:].detach(), task)
 				action_start = action[:self.cfg.input_delay_buffer]
 				action = action[self.cfg.input_delay_buffer:]
 				obs = obs[self.cfg.input_delay_buffer:]
@@ -313,7 +315,7 @@ class TDMPC2:
 		if not self.cfg.input_delay_buffer:
 			z = self.model.encode(obs[0], task)
 		else:
-			z = self.model.encode_delayed(obs[0], action_start, task)[0]
+			z = self.model.encode_delayed(obs[0], action_start.detach(), task)[0]
 		zs[0] = z
 		consistency_loss = 0
 		for t in range(self.cfg.horizon):
@@ -435,7 +437,7 @@ class TDMPC2:
 			zs_obs = self.model.encode(obs, task).detach()
 		else:
 			# print(obs.shape, action.shape)
-			zs_obs = self.model.encode_delayed(obs[:-self.cfg.input_delay_buffer], action, task).detach()
+			zs_obs = self.model.encode_delayed(obs[:-self.cfg.input_delay_buffer], action.detach(), task).detach()
 			action = action[self.cfg.input_delay_buffer:]
 			
 		a_len = len(action)

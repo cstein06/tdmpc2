@@ -324,7 +324,7 @@ checkpoint_local: false
 task_dim: 96
 num_q: 5
 dropout: 0.01
-simnorm_dim: ??? # set it to 8 if expert, 4 if my old sims
+simnorm_dim: 8 # 4 if some old sims
 
 # logging
 wandb_project: control
