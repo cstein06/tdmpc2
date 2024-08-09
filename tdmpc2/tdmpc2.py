@@ -437,9 +437,10 @@ class TDMPC2:
 			zs_obs = self.model.encode(obs, task).detach()
 		else:
 			# print(obs.shape, action.shape)
-			zs_obs = self.model.encode_delayed(obs[:-self.cfg.input_delay_buffer], action.detach(), task).detach()
-			action = action[self.cfg.input_delay_buffer:]
+			zs_obs = self.model.encode_delayed(obs[self.cfg.input_delay_buffer:], action.detach(), task).detach()
 			
+			action = action[self.cfg.input_delay_buffer:]
+
 		a_len = len(action)
 		ep_len = len(zs_obs)
 

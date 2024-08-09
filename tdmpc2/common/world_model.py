@@ -183,7 +183,10 @@ class WorldModel(nn.Module):
 		len_padded = len_obs+self.cfg.input_delay_buffer-1
 		# print(len_obs, len_actions, len_padded)
 		if len_actions < len_padded:
+			print("Padding actions: ", len_actions, len_padded)
 			actions = torch.cat([actions, torch.zeros(len_padded-len_actions, *actions.shape[1:], device=actions.device)], dim=0)
+		if len_actions > len_padded:
+			print("too many actions in encode_delayed")
 
 		for i in range(self.cfg.input_delay_buffer):
 			# print(obs.shape, actions[i:i+len_obs].shape)
