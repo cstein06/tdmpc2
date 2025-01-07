@@ -195,7 +195,8 @@ def make_env(cfg):
 	env = ActionDTypeWrapper(env, np.float32)
 	env = ActionRepeatWrapper(env, cfg.action_repeat)
 	if cfg.action_limit:
-		env = action_scale.Wrapper(env, minimum=-1., maximum=1.)
+		env = action_scale.Wrapper(env, minimum=-cfg.action_limit, maximum=cfg.action_limit)
+		print('Action limits:', -cfg.action_limit, cfg.action_limit)
 	# env = action_scale.Wrapper(env, minimum=-1., maximum=1.)
 	env = ExtendedTimeStepWrapper(env)
 	env = TimeStepToGymWrapper(env, domain, task, max_episode_steps=cfg.episode_length)

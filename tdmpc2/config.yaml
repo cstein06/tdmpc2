@@ -4,13 +4,13 @@ defaults:
 # environment
 # task: dog-run
 # task: humanoid-stand
+task: humanoid-walk
 # task: reacher-hard
 # task: pointmass-mine
-task: walker-walk
+# task: walker-walk
 
 device: cuda
 # device: mps
-
 
 # evaluation
 checkpoint: ???
@@ -37,7 +37,7 @@ exp_name: default
 data_dir: ???
 
 # planning
-mpc: false
+mpc: true
 # mpc: false
 # horizon: 10
 iterations: 6
@@ -109,7 +109,7 @@ input_delay_buffer: 0
 force_field: false
 force_field_scale: 5.
 
-action_limit: true
+action_limit: true # None for no limit, but may not work
  
 # control
 control: true 
@@ -351,7 +351,6 @@ action_dims: ???
 episode_lengths: ???
 bin_size: ???
 puppet: ???
-
 
 # pointmass
 friction: 0. # not sure this works. change 'damping' in pointmass.xml
