@@ -236,6 +236,7 @@ class TDMPC2:
 		qs = self.model.Q(zs, pis, task, return_type='avg')
 
 		# transfered cost to reward in training
+		# here works better, but for mpc doesn't work
 		if not self.cfg.cost_in_reward:
 
 			if self.cfg.cost_thres:

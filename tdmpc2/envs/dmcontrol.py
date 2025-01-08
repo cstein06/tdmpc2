@@ -192,12 +192,15 @@ def make_env(cfg):
 					 task,
 					 task_kwargs={'random': cfg.seed},
 					 visualize_reward=False)
+	print("Action spec orig:", env.action_spec())
 	env = ActionDTypeWrapper(env, np.float32)
 	env = ActionRepeatWrapper(env, cfg.action_repeat)
-	if cfg.action_limit:
-		env = action_scale.Wrapper(env, minimum=-cfg.action_limit, maximum=cfg.action_limit)
-		print('Action limits:', -cfg.action_limit, cfg.action_limit)
-	# env = action_scale.Wrapper(env, minimum=-1., maximum=1.)
+	print(env.action_spec())
+	# if cfg.action_limit:
+	# 	env = action_scale.Wrapper(env, minimum=-cfg.action_limit, maximum=cfg.action_limit)
+	# 	print('Action limits:', -cfg.action_limit, cfg.action_limit)
+	# 	print("Rescales action spec:", env.action_spec())
+	env = action_scale.Wrapper(env, minimum=-1., maximum=1.)
 	env = ExtendedTimeStepWrapper(env)
 	env = TimeStepToGymWrapper(env, domain, task, max_episode_steps=cfg.episode_length)
 	return env

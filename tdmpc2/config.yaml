@@ -109,7 +109,7 @@ input_delay_buffer: 0
 force_field: false
 force_field_scale: 5.
 
-action_limit: true # None for no limit, but may not work
+action_limit: 0.01 #true # None for no limit, but may not work
  
 # control
 control: true 
@@ -125,9 +125,9 @@ rec_alpha: 0.5
 
 horizon: 3
 control_cost: 0. #0.1
-cost_in_reward: false
+cost_in_reward: true # change back to false, works better. true for mpc.
 control_cost_L1: 0. 
-auto_cost: true
+auto_cost: false
 cost_thres: 0.5
 target_action_norm: 0.5
 control_cost_rate: 1e-4

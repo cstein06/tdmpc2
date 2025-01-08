@@ -10,8 +10,9 @@
   <default>
     <joint damping=".1" armature="0.01" limited="true" solimplimit="0 .99 .01"/>
     <geom contype="1" conaffinity="0" friction=".7 .1 .1"/>
-    <motor ctrlrange="-2 2" ctrllimited="true"/>
+    <!-- <motor ctrllimited="false"/> -->
     <!-- <motor ctrlrange="-1 1" ctrllimited="true"/> -->
+    <motor ctrlrange="-5 5" ctrllimited="true"/>
     <site size="0.01"/>
     <default class="walker">
       <geom material="self" type="capsule"/>

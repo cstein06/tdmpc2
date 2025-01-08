@@ -531,9 +531,9 @@ class OnlineTrainer(Trainer):
 			else:
 				effective_action = effective_action
 
-			if self.cfg.action_limit:
-				effective_action *= self.cfg.action_limit
-				# effective_action = torch.clamp(effective_action, -cfg.action_limit, cfg.action_limit)
+			# if self.cfg.action_limit:
+			# 	effective_action *= self.cfg.action_limit
+			# 	# effective_action = torch.clamp(effective_action, -cfg.action_limit, cfg.action_limit)
 
 			obs, reward_orig, done, info = self.env.step(effective_action.detach().cpu())
 
