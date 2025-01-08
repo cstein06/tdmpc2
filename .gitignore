@@ -3,6 +3,7 @@ logs/
 outputs/
 wandb/
 checkpoints/
+figures/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
